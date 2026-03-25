@@ -82,8 +82,9 @@ export const module2: Topic = {
           mode: 'builder',
           task: 'Deklariere "counter" als veränderbare Int-Variable mit Wert 1, dann weise ihr den Wert 2 zu',
           initialCode: '',
-          solution: 'var counter: Int = 1
-counter = 2',
+          // ✅ Korrigiert: Template Literal für mehrzeiligen String
+          solution: `var counter: Int = 1
+counter = 2`,
           gaps: ['var', 'Int'],
           distractors: ['val', 'let', 'String'],
           hints: {
