@@ -5,14 +5,18 @@ import { VitePWA } from "vite-plugin-pwa";
 import path from "path";
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, ".", "");
+  const env = loadEnv(mode, process.cwd(), "");
 
   return {
     plugins: [
+      tailwindcss(), // Zuerst Tailwind!
       react(),
-      tailwindcss(),
       VitePWA({
         registerType: "autoUpdate",
+        injectRegister: 'auto',
+        workbox: {
+          globPatterns: ['**/*.{js,css,html,ico,png,svg}'] // Behebt die PWA-Warnung
+        },
         manifest: {
           name: "Kotlin Master",
           short_name: "KotlinMaster",
@@ -20,7 +24,7 @@ export default defineConfig(({ mode }) => {
           theme_color: "#ffffff",
           icons: [
             {
-              src: "/icon-192x192.png",
+              src: "icon-192x192.png", // Ohne führenden Slash für PWA-Kompatibilität
               sizes: "192x192",
               type: "image/png"
             }
@@ -33,12 +37,8 @@ export default defineConfig(({ mode }) => {
     },
     resolve: {
       alias: {
-        "@": path.resolve(__dirname, "./")
+        "@": path.resolve(__dirname, "./src")
       }
-    },
-    server: {
-      hmr: process.env.DISABLE_HMR !== "true"
     }
   };
 });
- 
