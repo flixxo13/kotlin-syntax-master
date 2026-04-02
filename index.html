@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <!-- ── PWA Meta Tags ── -->
+    <meta name="theme-color" content="#7F52FF" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="KotlinMaster" />
+
+    <!-- ── SEO / Description ── -->
+    <meta name="description" content="Kotlin Syntax interaktiv lernen – offline, schnell und mobil." />
+    <meta name="application-name" content="Kotlin Master" />
+
+    <!-- ── Icons (Apple) ── -->
+    <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.png" />
+
+    <!-- ── Splash Screens (iOS) ── -->
+    <!-- iPhone 14 Pro Max -->
+    <link rel="apple-touch-startup-image"
+      href="/splashscreens/apple-splash-1290-2796.png"
+      media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)" />
+    <!-- iPhone 14 / 13 -->
+    <link rel="apple-touch-startup-image"
+      href="/splashscreens/apple-splash-1170-2532.png"
+      media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" />
+
+    <!-- ── PWA Manifest ── -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- ── Favicon ── -->
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-96.png" />
+
+    <title>Kotlin Master</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+
+    <!-- ── Service Worker Registration ── -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker
+            .register('/sw.js', { scope: '/' })
+            .then(reg => {
+              console.log('[SW] Registered, scope:', reg.scope);
+
+              // Update gefunden → User informieren
+              reg.addEventListener('updatefound', () => {
+                const newWorker = reg.installing;
+                if (newWorker) {
+                  newWorker.addEventListener('statechange', () => {
+                    if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                      // Hier später: Update-Banner anzeigen
+                      console.log('[SW] Update available — reload to apply');
+                    }
+                  });
+                }
+              });
+            })
+            .catch(err => console.warn('[SW] Registration failed:', err));
+        });
+      }
+    </script>
+  </body>
+</html>
