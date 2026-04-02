@@ -79,8 +79,7 @@ const LINE_H = 24;
 const PAD_T  = 10;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-export function ExerciseScreen() 
- {
+export function ExerciseScreen() {
   const [exIdx, setExIdx]           = useState(0);
   const ex                          = EXERCISES[exIdx];
 
@@ -95,26 +94,36 @@ export function ExerciseScreen()
   const [showTokens, setShowTokens] = useState(true);
   const [showChips,  setShowChips]  = useState(true);
 
-  // Sheet: null = closed, number = height in px (user can drag to any position)
   const [sheetH, setSheetH]         = useState(null);
-
-  // Keyboard
   const [kbH, setKbH]               = useState(0);
-  const kbOpen                       = kbH > 80;
+  const kbOpen                      = kbH > 80;
 
   const taRef       = useRef(null);
   const sheetDragY  = useRef(null);
   const sheetDragH  = useRef(null);
 
-  // ── visualViewport ──
+  // ── KORRIGIERT: visualViewport mit Debounce ──
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
-    const upd = () => setKbH(Math.max(0, window.innerHeight - vv.height - vv.offsetTop));
+    let lastH = 0;
+    let rafId;
+    const upd = () => {
+      const newH = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      if (Math.abs(lastH - newH) > 10) {
+        lastH = newH;
+        cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(() => setKbH(newH));
+      }
+    };
     vv.addEventListener("resize", upd);
     vv.addEventListener("scroll", upd);
     upd();
-    return () => { vv.removeEventListener("resize", upd); vv.removeEventListener("scroll", upd); };
+    return () => {
+      vv.removeEventListener("resize", upd);
+      vv.removeEventListener("scroll", upd);
+      cancelAnimationFrame(rafId);
+    };
   }, []);
 
   // ── reset ──
@@ -151,10 +160,8 @@ export function ExerciseScreen()
   const requestHint = useCallback(() => {
     if (solShown) return;
     if (!allUsed) {
-      // Just reveal ghost — do NOT open sheet
       setHintLevel(h => typeof h === "number" ? h + 1 : 3);
     } else {
-      // All hints used → show solution, open sheet so they can read it
       setSolShown(true);
       setSheetH(180);
     }
@@ -170,7 +177,27 @@ export function ExerciseScreen()
     } else { setCode(p => p + text); }
   }, [code]);
 
-  // Sheet drag — free position
+  // ── KORRIGIERT: Focus-Funktion mit Retry ──
+  const openFullscreenAndFocus = useCallback(() => {
+    setFullscreen(true);
+    const focusTA = (attempts = 0) => {
+      if (attempts > 5) return;
+      requestAnimationFrame(() => {
+        const ta = taRef.current;
+        if (ta && document.contains(ta)) {
+          ta.focus({ preventScroll: true });
+          if (document.activeElement !== ta) {
+            setTimeout(() => focusTA(attempts + 1), 50);
+          }
+        } else {
+          setTimeout(() => focusTA(attempts + 1), 50);
+        }
+      });
+    };
+    setTimeout(focusTA, 150);
+  }, []);
+
+  // Sheet drag
   const onSheetDragStart = (e) => {
     sheetDragY.current = "touches" in e ? e.touches[0].clientY : e.clientY;
     sheetDragH.current = sheetH || 200;
@@ -178,19 +205,18 @@ export function ExerciseScreen()
   const onSheetDragMove = (e) => {
     if (sheetDragY.current === null) return;
     const y   = "touches" in e ? e.touches[0].clientY : e.clientY;
-    const dy  = sheetDragY.current - y; // drag up = positive = taller
+    const dy  = sheetDragY.current - y;
     const newH = Math.max(60, Math.min(420, sheetDragH.current + dy));
     setSheetH(newH);
   };
   const onSheetDragEnd = (e) => {
     const y   = "changedTouches" in e ? e.changedTouches[0].clientY : e.clientY;
     const dy  = sheetDragY.current - y;
-    if (dy < -60) setSheetH(null); // swipe down enough → close
+    if (dy < -60) setSheetH(null);
     sheetDragY.current = null;
     sheetDragH.current = null;
   };
 
-  // Ghost hint positioning: below last line of code or initialCode
   const codeLines = code ? code.split("\n").length : 0;
   const initLines = ex.initialCode ? ex.initialCode.split("\n").length : 0;
   const ghostTop  = PAD_T + Math.max(codeLines, initLines) * LINE_H + Math.round(LINE_H * 0.5);
@@ -202,10 +228,10 @@ export function ExerciseScreen()
   const showGhost = !!currentHintText && !solShown;
 
   const smartToks = getSmartTokens(code);
-  const TOKEN_H   = showTokens ? 48 : 44; // fallback bar also 44
+  const TOKEN_H   = showTokens ? 48 : 44;
   const SHEET_OPEN = sheetH !== null;
 
-  // ── Chips Row ──────────────────────────────────────────────────────────────
+  // ── Chips Row ──
   const ChipsRow = () => (
     <div style={{
       minHeight: 32, flexShrink: 0, background: "#0a0a10",
@@ -247,14 +273,13 @@ export function ExerciseScreen()
     </div>
   );
 
-  // ── Token Bar ──────────────────────────────────────────────────────────────
+  // ── Token Bar ──
   const TokenBar = () => (
     <div style={{
       height: 48, background: "#0d0d14", borderTop: "1px solid #1e1e2e",
       display: "flex", alignItems: "center", padding: "0 8px", gap: 5,
       overflowX: "auto", scrollbarWidth: "none", flexShrink: 0,
     }}>
-      {/* 💡 with dots + sheet toggle */}
       <button onClick={requestHint} disabled={solShown} title="Nächster Hint"
         style={{
           height: 34, padding: "0 8px", borderRadius: 8, flexShrink: 0,
@@ -274,7 +299,6 @@ export function ExerciseScreen()
             }} />
           ))}
         </div>
-        {/* Sheet open/close arrow — separate tap area */}
         <span
           onClick={e => { e.stopPropagation(); setSheetH(s => s === null ? 200 : null); }}
           style={{ fontSize: 10, color: "#4b5563", marginLeft: 2, padding: "2px 2px",
@@ -285,7 +309,6 @@ export function ExerciseScreen()
 
       <div style={{ width: 1, height: 22, background: "#1e1e2e", flexShrink: 0 }} />
 
-      {/* Live check ▶ */}
       <button onClick={check} title="Syntax prüfen"
         style={{
           width: 34, height: 34, borderRadius: 8, flexShrink: 0,
@@ -301,7 +324,6 @@ export function ExerciseScreen()
 
       <div style={{ width: 1, height: 22, background: "#1e1e2e", flexShrink: 0 }} />
 
-      {/* Smart tokens */}
       {smartToks.map((s, i) => (
         <button key={i} onClick={() => insert(s)}
           style={{
@@ -319,14 +341,13 @@ export function ExerciseScreen()
     </div>
   );
 
-  // ── Fallback bar (token bar OFF) ───────────────────────────────────────────
+  // ── Fallback bar ──
   const FallbackBar = () => (
     <div style={{
       height: 44, background: "#0d0d14", borderTop: "1px solid #1e1e2e",
       display: "flex", alignItems: "center", padding: "0 16px",
       flexShrink: 0,
     }}>
-      {/* 💡 Hint left */}
       <button onClick={requestHint} disabled={solShown}
         style={{
           height: 36, padding: "0 14px", borderRadius: 10,
@@ -347,7 +368,6 @@ export function ExerciseScreen()
             }} />
           ))}
         </div>
-        {/* Toggle sheet */}
         <span
           onClick={e => { e.stopPropagation(); setSheetH(s => s === null ? 200 : null); }}
           style={{ fontSize: 11, color: "#4b5563", marginLeft: 2, cursor: "pointer" }}>
@@ -357,7 +377,6 @@ export function ExerciseScreen()
 
       <div style={{ flex: 1 }} />
 
-      {/* CHECK right */}
       <button onClick={check}
         style={{
           height: 36, padding: "0 20px", borderRadius: 10,
@@ -381,7 +400,7 @@ export function ExerciseScreen()
     </div>
   );
 
-  // ── Hint Sheet (free-height, drag to resize) ───────────────────────────────
+  // ── Hint Sheet ──
   const HintSheet = () => SHEET_OPEN ? (
     <div style={{
       height: sheetH,
@@ -393,7 +412,6 @@ export function ExerciseScreen()
       boxShadow: "0 -6px 28px rgba(0,0,0,.5)",
       transition: "height .18s cubic-bezier(.4,0,.2,1)",
     }}>
-      {/* Drag handle */}
       <div
         onPointerDown={onSheetDragStart}
         onPointerMove={onSheetDragMove}
@@ -410,7 +428,6 @@ export function ExerciseScreen()
         <div style={{ width: 32, height: 4, borderRadius: 2, background: "#2a2a42" }} />
       </div>
 
-      {/* Scrollable hint cards */}
       <div style={{
         flex: 1, overflowY: "auto", padding: "0 12px 14px",
         display: "flex", flexDirection: "column", gap: 8,
@@ -471,13 +488,12 @@ export function ExerciseScreen()
     </div>
   ) : null;
 
-  // ── Editor area ──────────────────────────────────────────────────────────
+  // ── KORRIGIERT: Editor area mit autoFocus und inputMode ──
   const EditorArea = ({ clickable = false }) => (
     <div
       style={{ flex: 1, minHeight: 0, position: "relative", background: "#0a0a10" }}
-      onClick={clickable ? () => { setFullscreen(true); setTimeout(() => taRef.current?.focus(), 80); } : undefined}
+      onClick={clickable ? openFullscreenAndFocus : undefined}
     >
-      {/* Line number */}
       <div style={{
         position: "absolute", left: 0, top: 0, bottom: 0, width: 28,
         background: "#0d0d14", borderRight: "1px solid #1a1a28",
@@ -486,7 +502,6 @@ export function ExerciseScreen()
         userSelect: "none", pointerEvents: "none",
       }}>1</div>
 
-      {/* Ghost hint — positioned below last code line */}
       {showGhost && (
         <div style={{
           position: "absolute", left: 28, right: 0, top: ghostTop,
@@ -505,11 +520,14 @@ export function ExerciseScreen()
         value={code}
         onChange={e => setCode(e.target.value)}
         readOnly={clickable}
+        autoFocus={!clickable}
+        inputMode="text"
         style={{
           position: "absolute", inset: 0, left: 28,
           background: "transparent", border: "none", outline: "none",
           fontFamily: "'JetBrains Mono',monospace",
-          fontSize: 14, lineHeight: `${LINE_H}px`,
+          fontSize: 16, // WICHTIG: 16px verhindert iOS-Zoom
+          lineHeight: `${LINE_H}px`,
           color: fb === "correct" ? "#4ade80" : fb === "incorrect" ? "#f87171" : "#e2e8f0",
           padding: `${PAD_T}px 12px 10px`,
           resize: "none", caretColor: "#7c3aed",
@@ -532,7 +550,7 @@ export function ExerciseScreen()
     </div>
   );
 
-  // ── Accessory (fixed over keyboard) ────────────────────────────────────────
+  // ── Accessory ──
   const AccessoryFixed = () => (
     <div style={{
       position: "fixed", bottom: kbH, left: "50%", transform: "translateX(-50%)",
@@ -540,7 +558,6 @@ export function ExerciseScreen()
       display: "flex", flexDirection: "column",
       transition: kbH > 0 ? "none" : "bottom .25s ease",
     }}>
-      {/* Chips above tokens when kb open in fullscreen */}
       {fullscreen && showChips && kbOpen && <ChipsRow />}
       {showTokens ? <TokenBar /> : <FallbackBar />}
       <HintSheet />
@@ -561,7 +578,6 @@ export function ExerciseScreen()
           fontFamily: "'Inter',system-ui,sans-serif", overflow: "hidden",
           paddingBottom: kbH + TOKEN_H + (SHEET_OPEN ? sheetH : 0),
         }}>
-          {/* Compact header */}
           <div style={{
             height: 46, flexShrink: 0, background: "#0d0d14",
             borderBottom: "1px solid #1e1e2e",
@@ -581,10 +597,8 @@ export function ExerciseScreen()
             <button onClick={() => setShowTokens(p => !p)} style={toggleBtn(showTokens)} title="Token-Bar">⌨</button>
           </div>
 
-          {/* Chips: shown ABOVE editor when kb is CLOSED in fullscreen */}
           {showChips && !kbOpen && <ChipsRow />}
 
-          {/* Editor */}
           <EditorArea clickable={false} />
         </div>
 
@@ -606,7 +620,6 @@ export function ExerciseScreen()
         fontFamily: "'Inter',system-ui,sans-serif", overflow: "hidden",
         paddingBottom: 44,
       }}>
-        {/* Header */}
         <div style={{
           height: 52, flexShrink: 0, background: "#0d0d14",
           borderBottom: "1px solid #1e1e2e",
@@ -628,7 +641,6 @@ export function ExerciseScreen()
           </div>
         </div>
 
-        {/* Aufgabe */}
         <div style={{ background: "#0d0d14", borderBottom: "1px solid #1e1e2e", flexShrink: 0 }}>
           <button onClick={() => setTaskOpen(p => !p)} style={{
             width: "100%", display: "flex", alignItems: "center",
@@ -656,10 +668,8 @@ export function ExerciseScreen()
           )}
         </div>
 
-        {/* Chips */}
         <ChipsRow />
 
-        {/* Editor — tap → fullscreen */}
         <EditorArea clickable={true} />
 
         <div style={{ textAlign: "center", padding: "5px 0", flexShrink: 0,
@@ -670,7 +680,6 @@ export function ExerciseScreen()
         </div>
       </div>
 
-      {/* Fixed bottom in normal view */}
       <div style={{
         position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
         width: "100%", maxWidth: 430, zIndex: 200,
@@ -702,9 +711,10 @@ const toggleBtn = (active) => ({
 });
 
 const STYLES = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap');
+  @import url('[fonts.googleapis.com](https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap)');
   *{box-sizing:border-box;margin:0;padding:0;}
   ::-webkit-scrollbar{display:none;}
   body{background:#060609;overscroll-behavior:none;}
-  textarea{-webkit-user-select:text!important;user-select:text!important;}
+  textarea{-webkit-user-select:text!important;user-select:text!important;font-size:16px!important;}
+  html,body{height:100%;overflow:hidden;position:fixed;width:100%;}
 `;
