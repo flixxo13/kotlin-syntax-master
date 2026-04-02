@@ -79,7 +79,8 @@ const LINE_H = 24;
 const PAD_T  = 10;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-export default function App() {
+export function ExerciseScreen() 
+ {
   const [exIdx, setExIdx]           = useState(0);
   const ex                          = EXERCISES[exIdx];
 
