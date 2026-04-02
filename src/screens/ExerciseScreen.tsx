@@ -1,12 +1,3 @@
-Hier ist die vollständige, bereinigte Datei ExerciseScreen.tsx.
-Ich habe die **Vibe Coding** Prinzipien angewendet: Die Vision ist eine flüssige Mobile-Bedienung, die Schritte sind präzise unterteilt und der Code ist für den "Ausführungsmodus" optimiert.
-### Dokumentation der Änderungen:
- 1. **Export-Fix:** Die Funktion heißt nun ExerciseScreen (kein default), passend zu deinem Import in der App.tsx.
- 2. **Keyboard-Stabilität:** Nutzung von visualViewport mit einem Schwellenwert, um nervöses Flackern zu verhindern.
- 3. **Fokus-Garantie:** Ein verzögerter Fokus-Aufruf (setTimeout) stellt sicher, dass die Tastatur beim Wechsel in den Fullscreen-Modus aktiv bleibt.
- 4. **iOS-Zoom-Fix:** Die Schriftgröße im Editor ist fest auf 16px eingestellt, um den automatischen Layout-Sprung von iPhones zu verhindern.
- 5. **Layout-Architektur:** Verwendung von dvh (Dynamic Viewport Height) und fixed Positionierung für die Token-Leiste.
-```tsx
 import { useState, useEffect, useRef, useCallback } from "react";
 
 // ─── DATA ─────────────────────────────────────────────────────────────────────
@@ -496,5 +487,3 @@ const STYLES = `
   body{background:#060609;overscroll-behavior:none;position:fixed;width:100%;height:100%;}
   textarea{font-size:16px!important;} /* Verhindert iOS Zoom */
 `;
-
-```
