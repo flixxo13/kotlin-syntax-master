@@ -1,435 +1,244 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { useLearningStore } from '../store/useLearningStore';
-import { TOPICS } from '../data/topics';
-import { Exercise, HintLevel } from '../types';
-import { analyzeKotlinSyntax, getSmartTokens, FeedbackElement } from '../services/syntaxAnalyzer';
-import { NoteModal } from '../components/exercise/NoteModal';
-import { AssignmentView } from '../components/exercise/AssignmentView';
+import { useState, useEffect, useRef, useCallback } from "react";
 
-// ─── FEEDBACK CHIP STYLES ─────────────────────────────────────────────────────
-const CHIP_STYLE = {
-  'correct-pos': {
-    bg: 'rgba(34,197,94,.2)',
-    border: 'rgba(34,197,94,.6)',
-    color: '#4ade80',
-    mark: '✓',
+// ─── DATA ─────────────────────────────────────────────────────────────────────
+const EXERCISES = [
+  {
+    id: "ex1", conceptId: "val vs. var",
+    task: 'Deklariere eine read-only Variable "version" mit dem Wert 2.0.',
+    initialCode: "", solution: "val version = 2.0",
+    hints: ["... version = 2.0", "val version = ...", "val version = 2.0"],
   },
-  'in-solution': {
-    bg: 'rgba(59,130,246,.2)',
-    border: 'rgba(59,130,246,.6)',
-    color: '#60a5fa',
-    mark: '~',
+  {
+    id: "ex2", conceptId: "Funktionen",
+    task: 'Schreibe die main-Funktion, die "Hello" ausgibt.',
+    initialCode: "", solution: 'fun main() { println("Hello") }',
+    hints: ['... ...() { ...("...") }', 'fun main() { println("...") }', 'fun main() { println("Hello") }'],
   },
-  'detected': {
-    bg: 'rgba(100,116,139,.1)',
-    border: 'rgba(100,116,139,.2)',
-    color: '#52606e',
-    mark: null,
+  {
+    id: "ex3", conceptId: "Null-Safety",
+    task: "Weise result den Wert von input zu, oder 0 falls input null ist.",
+    initialCode: "val input: Int? = null", solution: "val result = input ?: 0",
+    hints: ["... ... = ... ... ...", "val result = input ... 0", "val result = input ?: 0"],
   },
-  'unknown': {
-    bg: 'rgba(71,85,105,.08)',
-    border: 'rgba(71,85,105,.15)',
-    color: '#3d4654',
-    mark: null,
+  {
+    id: "ex4", conceptId: "Listen",
+    task: "Greife auf Index 2 der Liste data zu und weise es x zu.",
+    initialCode: "val data = listOf(10, 20, 30)", solution: "val x = data[2]",
+    hints: ["... ... = ... ...", "val x = data[...]", "val x = data[2]"],
   },
-} as const;
+];
 
-const HINT_COLORS = ['#f97316', '#fb923c', '#fca5a5'];
+// ─── TOKENIZER & FEEDBACK ─────────────────────────────────────────────────────
+const KW = new Set(["val","var","fun","if","else","when","for","while","return",
+  "class","in","is","as","null","true","false","Int","String","Boolean","Double","Long",
+  "listOf","mutableListOf","println","print","downTo","until"]);
+const ST = new Set(["(",")","{","}","[","]","=",":",".","->","?:","?.","!!",
+  "+","-","*","/","%","<",">","==","!=","&&","||","!",","]);
 
-// ─── PROPS ────────────────────────────────────────────────────────────────────
-interface ExerciseScreenProps {
-  topicId:    string;
-  conceptId:  string;
-  exerciseId?: string;
-  onBack:     () => void;
+function tokenize(code) {
+  if (!code.trim()) return [];
+  const re = /\?:|\.\.\.|\?\.|!!|->|<=|>=|==|!=|&&|\|\||[+\-*/%<>!]|[(){}[\]=:.,]|"[^"]*"|\d+\.?\d*|\b\w+\.?\w*\b|\S/g;
+  const out = []; let m;
+  while ((m = re.exec(code)) !== null) out.push(m[0]);
+  return out;
 }
 
-// ─── ICON BUTTON STYLE HELPER ─────────────────────────────────────────────────
-const iconBtnStyle = (active: boolean): React.CSSProperties => ({
-  width: 34, height: 34, borderRadius: 9, flexShrink: 0,
-  background:  active ? 'rgba(124,58,237,.35)' : 'rgba(255,255,255,.06)',
-  border:      active ? '1px solid rgba(124,58,237,.6)' : '1px solid rgba(255,255,255,.08)',
-  color:       active ? '#c4b5fd' : '#6b7280',
-  cursor: 'pointer',
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-  transition: 'all .15s',
-  outline: 'none',
-  WebkitTapHighlightColor: 'transparent',
-});
+function analyze(code, solution) {
+  const ct = tokenize(code), st = tokenize(solution);
+  return ct.map((tok, i) => ({
+    tok,
+    s: st[i] === tok ? "correct"
+     : st.includes(tok) ? "present"
+     : (KW.has(tok) || ST.has(tok) || /^\d+\.?\d*$/.test(tok)) ? "syntax"
+     : "unknown",
+  }));
+}
+
+const CHIP = {
+  correct: { bg:"rgba(34,197,94,.2)",   border:"rgba(34,197,94,.6)",   color:"#4ade80", mark:"✓" },
+  present: { bg:"rgba(59,130,246,.2)",  border:"rgba(59,130,246,.6)",  color:"#60a5fa", mark:"~" },
+  syntax:  { bg:"rgba(100,116,139,.1)", border:"rgba(100,116,139,.2)", color:"#52606e", mark:null },
+  unknown: { bg:"rgba(71,85,105,.08)",  border:"rgba(71,85,105,.15)",  color:"#3d4654", mark:null },
+};
+
+const HCOL = ["#f97316","#fb923c","#fca5a5"];
+
+function getSmartTokens(code) {
+  const t = code.trimEnd();
+  if (!t)                        return ["val","var","fun","if","when","for","return"];
+  if (/=\s*$/.test(t))           return ["2.0","0","true","false",'"text"',"null","input","n","1","listOf("];
+  if (/\b(val|var)\s+$/.test(t)) return ["version","result","count","name","x","data","i"];
+  if (/\bfun\s+$/.test(t))       return ["main()","inc(","greet(","add("];
+  if (/\?:\s*$/.test(t))         return ["0","false",'"default"',"null"];
+  if (/:\s*$/.test(t))           return ["Int","String","Boolean","Double","Long","Unit"];
+  if (/\w\s*$/.test(t))          return ["=",":",".","(","[","?:","?.","!!","+","-","->"];
+  return ["val","var","fun","=",":","->","?:","?.","( )","{ }","[ ]","+","-",","];
+}
+
+const LINE_H = 24;
+const PAD_T  = 10;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-export const ExerciseScreen: React.FC<ExerciseScreenProps> = ({
-  topicId, conceptId, exerciseId, onBack,
-}) => {
-  const {
-    currentHintLevel, requestHint, revealSolution,
-    completeExercise, resetHint, startSession,
-    customTasks, exerciseNotes, saveExerciseNote,
-    editorHeight: storedEditorHeight,
-  } = useLearningStore();
+export default function App() {
+  const [exIdx, setExIdx]           = useState(0);
+  const ex                          = EXERCISES[exIdx];
 
-  // ── Find exercise ──
-  let exercise: Exercise | null = null;
-  if (topicId === 'custom' && exerciseId) {
-    exercise = customTasks.find(t => t.id === exerciseId) ?? null;
-  } else {
-    const topic   = TOPICS.find(t => t.id === topicId);
-    const concept = topic?.concepts.find(c => c.id === conceptId);
-    exercise = concept?.exercises.find(e => e.id === exerciseId) ?? concept?.exercises[0] ?? null;
-  }
-
-  // ── State ──
-  const [code, setCode]           = useState('');
-  const [fb, setFb]               = useState<'correct' | 'incorrect' | null>(null);
-  const [chips, setChips]         = useState<FeedbackElement[]>([]);
-  const [solved, setSolved]       = useState(false);
-  const [taskOpen, setTaskOpen]   = useState(true);
-  const [noteOpen, setNoteOpen]   = useState(false);
-
-  // Layout modes
+  const [code, setCode]             = useState(ex.initialCode || "");
+  const [hintLevel, setHintLevel]   = useState(0);
+  const [solShown, setSolShown]     = useState(false);
+  const [fb, setFb]                 = useState(null);
+  const [chips, setChips]           = useState([]);
+  const [solved, setSolved]         = useState(false);
+  const [taskOpen, setTaskOpen]     = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
-  const [showChips, setShowChips]   = useState(true);
   const [showTokens, setShowTokens] = useState(true);
+  const [showChips,  setShowChips]  = useState(true);
 
-  // Sheet: 'collapsed' | 'half' | 'full'
-  const [sheet, setSheet] = useState<'collapsed' | 'half' | 'full'>('collapsed');
+  // Sheet: null = closed, number = height in px (user can drag to any position)
+  const [sheetH, setSheetH]         = useState(null);
 
-  // Keyboard height
-  const [kbH, setKbH] = useState(0);
-  const kbOpen = kbH > 80;
+  // Keyboard
+  const [kbH, setKbH]               = useState(0);
+  const kbOpen                       = kbH > 80;
 
-  const taRef    = useRef<HTMLTextAreaElement>(null);
-  const dragY0   = useRef<number | null>(null);
-  const dragSt0  = useRef<'collapsed' | 'half' | 'full'>('collapsed');
+  const taRef       = useRef(null);
+  const sheetDragY  = useRef(null);
+  const sheetDragH  = useRef(null);
 
-  // ── visualViewport keyboard ──
+  // ── visualViewport ──
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
-    const upd = () => {
-      const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-      setKbH(kb);
-    };
-    vv.addEventListener('resize', upd);
-    vv.addEventListener('scroll', upd);
+    const upd = () => setKbH(Math.max(0, window.innerHeight - vv.height - vv.offsetTop));
+    vv.addEventListener("resize", upd);
+    vv.addEventListener("scroll", upd);
     upd();
-    return () => { vv.removeEventListener('resize', upd); vv.removeEventListener('scroll', upd); };
+    return () => { vv.removeEventListener("resize", upd); vv.removeEventListener("scroll", upd); };
   }, []);
 
-  // ── Reset on exercise change ──
+  // ── reset ──
   useEffect(() => {
-    if (!exercise) return;
-    resetHint();
-    setCode(exercise.initialCode || '');
+    setCode(ex.initialCode || "");
+    setHintLevel(0); setSolShown(false);
     setFb(null); setChips([]); setSolved(false);
-    setTaskOpen(true); setSheet('collapsed');
-    setFullscreen(false);
-    startSession(topicId, conceptId, exercise.mode);
-  }, [exercise?.id]);
+    setTaskOpen(true); setSheetH(null); setFullscreen(false);
+  }, [ex]);
 
-  // ── Live feedback chips ──
+  // ── live chips ──
   useEffect(() => {
-    if (!exercise) return;
-    setChips(code.trim() ? analyzeKotlinSyntax(code, exercise.solution) : []);
-  }, [code, exercise?.solution]);
+    setChips(code.trim() ? analyze(code, ex.solution) : []);
+  }, [code, ex.solution]);
 
-  // ── Reveal solution ──
+  // ── reveal ──
   useEffect(() => {
-    if (currentHintLevel === HintLevel.REVEALED && exercise?.solution) {
-      setCode(exercise.solution);
-    }
-  }, [currentHintLevel, exercise?.solution]);
+    if (solShown) setCode(ex.solution);
+  }, [solShown, ex.solution]);
 
-  if (!exercise) {
-    return (
-      <div className="flex items-center justify-center h-screen text-text-secondary text-sm">
-        Übung nicht gefunden
-      </div>
-    );
-  }
+  const normalize = s => s.replace(/\s+/g, " ").trim();
+  const isCorrect = normalize(code) === normalize(ex.solution);
+  const solToks   = tokenize(ex.solution).length;
+  const pct       = solToks > 0 ? Math.round(chips.filter(c => c.s === "correct").length / solToks * 100) : 0;
+  const hl        = typeof hintLevel === "number" ? hintLevel : 3;
+  const allUsed   = hl >= 3;
 
-  // ── Derived ──
-  const normalize  = (s: string) => s.replace(/\s+/g, ' ').trim();
-  const isCorrect  = normalize(code) === normalize(exercise.solution);
-  const solToks    = analyzeKotlinSyntax(exercise.solution, exercise.solution).length;
-  const correctN   = chips.filter(c => c.type === 'correct-pos').length;
-  const pct        = solToks > 0 ? Math.round((correctN / solToks) * 100) : 0;
-  const hlNum      = typeof currentHintLevel === 'number' ? currentHintLevel : 3;
-  const allHintsUsed = hlNum >= 3;
-  const solShown   = currentHintLevel === HintLevel.REVEALED;
-
-  const hintLabel  = solShown ? '—' : allHintsUsed ? 'LÖSUNG' : 'HINT+';
-  const hintColor  = solShown ? '#374151' : allHintsUsed ? '#ef4444' : '#f97316';
-  const hintBorder = solShown ? '#2a2a3a' : allHintsUsed ? 'rgba(239,68,68,.35)' : 'rgba(249,115,22,.35)';
-
-  const currentHintText =
-    hlNum === 1 ? exercise.hints.level1 :
-    hlNum === 2 ? exercise.hints.level2 :
-    hlNum === 3 ? exercise.hints.level3 : null;
-
-  const ghostHint = hlNum > 0 && !code && !solShown ? currentHintText : null;
-
-  // Sheet heights
-  const SH = {
-    collapsed: 56,
-    half:  Math.min(220, hlNum * 82 + 70),
-    full:  240,
-  };
-  const sheetH  = SH[sheet];
-  const TOKEN_H = showTokens ? 48 : 0;
-  const totalAcc = TOKEN_H + sheetH;
-
-  const smartToks = getSmartTokens(code);
-
-  // ── Actions ──
   const check = useCallback(() => {
-    const ok = isCorrect;
-    setFb(ok ? 'correct' : 'incorrect');
-    if (ok) {
-      setSolved(true);
-      setTimeout(() => {
-        completeExercise(exercise!.id, exercise!.conceptId, currentHintLevel);
-        setFb(null);
-        onBack();
-      }, 1500);
-    } else {
-      setTimeout(() => setFb(null), 800);
-    }
-  }, [isCorrect, exercise, currentHintLevel, onBack, completeExercise]);
+    setFb(isCorrect ? "correct" : "incorrect");
+    if (isCorrect) { setSolved(true); setTimeout(() => setFb(null), 2000); }
+    else           { setTimeout(() => setFb(null), 800); }
+  }, [isCorrect]);
 
-  const doRequestHint = useCallback(() => {
+  const requestHint = useCallback(() => {
     if (solShown) return;
-    if (!allHintsUsed) {
-      requestHint();
-      if (sheet === 'collapsed') setSheet('half');
+    if (!allUsed) {
+      // Just reveal ghost — do NOT open sheet
+      setHintLevel(h => typeof h === "number" ? h + 1 : 3);
     } else {
-      revealSolution();
+      // All hints used → show solution, open sheet so they can read it
+      setSolShown(true);
+      setSheetH(180);
     }
-  }, [solShown, allHintsUsed, requestHint, revealSolution, sheet]);
+  }, [solShown, allUsed]);
 
-  const insert = useCallback((raw: string) => {
-    const text = raw.replace('( )', '()').replace('{ }', '{}').replace('[ ]', '[]');
+  const insert = useCallback((raw) => {
+    const text = raw.replace("( )", "()").replace("{ }", "{}").replace("[ ]", "[]");
     const ta = taRef.current;
     if (ta) {
       const s = ta.selectionStart, e = ta.selectionEnd;
       setCode(code.slice(0, s) + text + code.slice(e));
       setTimeout(() => { ta.selectionStart = ta.selectionEnd = s + text.length; ta.focus(); }, 0);
-    } else {
-      setCode(p => p + text);
-    }
+    } else { setCode(p => p + text); }
   }, [code]);
 
-  const onDragStart = (e: React.PointerEvent | React.TouchEvent) => {
-    dragY0.current  = 'touches' in e ? e.touches[0].clientY : (e as React.PointerEvent).clientY;
-    dragSt0.current = sheet;
+  // Sheet drag — free position
+  const onSheetDragStart = (e) => {
+    sheetDragY.current = "touches" in e ? e.touches[0].clientY : e.clientY;
+    sheetDragH.current = sheetH || 200;
   };
-  const onDragEnd = (e: React.PointerEvent | React.TouchEvent) => {
-    if (dragY0.current === null) return;
-    const endY = 'changedTouches' in e
-      ? e.changedTouches[0].clientY
-      : (e as React.PointerEvent).clientY;
-    const d   = endY - dragY0.current;
-    const cur = dragSt0.current;
-    if (d < -40)     setSheet(cur === 'collapsed' ? 'half' : cur === 'half' ? 'full' : 'full');
-    else if (d > 40) setSheet(cur === 'full' ? 'half' : cur === 'half' ? 'collapsed' : 'collapsed');
-    dragY0.current = null;
+  const onSheetDragMove = (e) => {
+    if (sheetDragY.current === null) return;
+    const y   = "touches" in e ? e.touches[0].clientY : e.clientY;
+    const dy  = sheetDragY.current - y; // drag up = positive = taller
+    const newH = Math.max(60, Math.min(420, sheetDragH.current + dy));
+    setSheetH(newH);
+  };
+  const onSheetDragEnd = (e) => {
+    const y   = "changedTouches" in e ? e.changedTouches[0].clientY : e.clientY;
+    const dy  = sheetDragY.current - y;
+    if (dy < -60) setSheetH(null); // swipe down enough → close
+    sheetDragY.current = null;
+    sheetDragH.current = null;
   };
 
-  // ── Sub-components (inline to share scope) ──
+  // Ghost hint positioning: below last line of code or initialCode
+  const codeLines = code ? code.split("\n").length : 0;
+  const initLines = ex.initialCode ? ex.initialCode.split("\n").length : 0;
+  const ghostTop  = PAD_T + Math.max(codeLines, initLines) * LINE_H + Math.round(LINE_H * 0.5);
 
-  const TokenBar = () => (
-    <div style={{ height: 48, background: '#0d0d14', borderTop: '1px solid #1e1e2e',
-      display: 'flex', alignItems: 'center', padding: '0 8px', gap: 5,
-      overflowX: 'auto', scrollbarWidth: 'none', flexShrink: 0 }}>
-      {/* Live check */}
-      <button onClick={check}
-        style={{ width: 34, height: 34, borderRadius: 8, flexShrink: 0,
-          background: isCorrect ? 'rgba(34,197,94,.2)' : '#16162a',
-          border: `1.5px solid ${isCorrect ? '#22c55e' : '#252540'}`,
-          color: isCorrect ? '#4ade80' : '#6b7280',
-          cursor: 'pointer', fontSize: 14, fontWeight: 700,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'all .2s', outline: 'none' }}>
-        {isCorrect ? '✓' : '▶'}
-      </button>
-      <div style={{ width: 1, height: 22, background: '#1e1e2e', flexShrink: 0 }} />
-      {smartToks.map((s, i) => (
-        <button key={i} onClick={() => insert(s)}
-          style={{ padding: '5px 10px', height: 34, flexShrink: 0,
-            background: '#16162a', border: '1px solid #252540',
-            borderRadius: 7, color: '#c4b5fd',
-            fontFamily: 'monospace', fontSize: 12, fontWeight: 600,
-            cursor: 'pointer', whiteSpace: 'nowrap', outline: 'none' }}
-          onPointerDown={e => { e.currentTarget.style.background = '#7c3aed'; e.currentTarget.style.color = '#fff'; }}
-          onPointerUp={e => { e.currentTarget.style.background = '#16162a'; e.currentTarget.style.color = '#c4b5fd'; }}
-          onPointerLeave={e => { e.currentTarget.style.background = '#16162a'; e.currentTarget.style.color = '#c4b5fd'; }}
-        >{s}</button>
-      ))}
-    </div>
-  );
+  const currentHintText = hl === 1 ? ex.hints[0]
+                        : hl === 2 ? ex.hints[1]
+                        : hl === 3 ? ex.hints[2]
+                        : null;
+  const showGhost = !!currentHintText && !solShown;
 
-  const HintSheet = () => (
-    <div style={{ height: sheetH, background: '#111118',
-      borderTop: '1px solid #252540',
-      display: 'flex', flexDirection: 'column', overflow: 'hidden',
-      transition: 'height .22s cubic-bezier(.4,0,.2,1)',
-      borderRadius: sheet !== 'collapsed' ? '14px 14px 0 0' : 0,
-      boxShadow: sheet !== 'collapsed' ? '0 -6px 28px rgba(0,0,0,.55)' : 'none' }}>
+  const smartToks = getSmartTokens(code);
+  const TOKEN_H   = showTokens ? 48 : 44; // fallback bar also 44
+  const SHEET_OPEN = sheetH !== null;
 
-      {sheet !== 'collapsed' && (
-        <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 8, paddingBottom: 2, flexShrink: 0 }}
-          onPointerDown={onDragStart as any} onPointerUp={onDragEnd as any}
-          onTouchStart={onDragStart as any} onTouchEnd={onDragEnd as any}>
-          <div style={{ width: 32, height: 4, borderRadius: 2, background: '#2a2a42', cursor: 'ns-resize' }} />
-        </div>
-      )}
-
-      {/* Action row */}
-      <div onPointerDown={onDragStart as any} onPointerUp={onDragEnd as any}
-        onTouchStart={onDragStart as any} onTouchEnd={onDragEnd as any}
-        style={{ height: 56, flexShrink: 0, display: 'flex', alignItems: 'center',
-          padding: '0 12px', gap: 10, cursor: 'ns-resize', userSelect: 'none' }}>
-
-        <div style={{ width: 38, height: 38, borderRadius: 10, flexShrink: 0,
-          background: hlNum > 0 ? '#2d1a00' : '#1a1a2e',
-          border: `1px solid ${hlNum > 0 ? 'rgba(249,115,22,.25)' : '#252540'}`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span style={{ fontSize: 17 }}>💡</span>
-        </div>
-
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#6b7280',
-            textTransform: 'uppercase', letterSpacing: '.08em' }}>HILFE & HINTS</span>
-          <div style={{ display: 'flex', gap: 3 }}>
-            {[1, 2, 3].map(l => (
-              <div key={l} style={{ height: 4, width: 20, borderRadius: 2,
-                background: hlNum >= l ? HINT_COLORS[l - 1] : '#252540',
-                transition: 'background .2s' }} />
-            ))}
-            <div style={{ height: 4, width: 20, borderRadius: 2,
-              background: solShown ? '#ef4444' : '#252540', transition: 'background .2s' }} />
-          </div>
-        </div>
-
-        <button onClick={doRequestHint} disabled={solShown}
-          style={{ padding: '8px 14px', height: 36,
-            background: allHintsUsed && !solShown ? 'rgba(239,68,68,.1)' : 'transparent',
-            border: `1.5px solid ${hintBorder}`,
-            borderRadius: 10, color: hintColor,
-            fontSize: 11, fontWeight: 700, fontFamily: 'monospace',
-            letterSpacing: '.04em', whiteSpace: 'nowrap',
-            cursor: solShown ? 'default' : 'pointer', outline: 'none' }}>
-          {hintLabel}
-        </button>
-
-        <button onClick={check}
-          style={{ padding: '8px 16px', height: 36,
-            background: isCorrect
-              ? 'linear-gradient(135deg,#16a34a,#22c55e)'
-              : 'linear-gradient(135deg,#6d28d9,#7c3aed)',
-            border: 'none', borderRadius: 10, color: '#fff',
-            fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
-            boxShadow: isCorrect ? '0 2px 12px rgba(34,197,94,.3)' : '0 2px 12px rgba(124,58,237,.25)',
-            transition: 'background .3s', outline: 'none' }}
-          onPointerDown={e => e.currentTarget.style.transform = 'scale(.95)'}
-          onPointerUp={e => e.currentTarget.style.transform = 'scale(1)'}
-          onPointerLeave={e => e.currentTarget.style.transform = 'scale(1)'}
-        >CHECK</button>
-
-        <button onClick={() => setSheet(s => s === 'collapsed' ? 'half' : s === 'half' ? 'full' : 'collapsed')}
-          style={{ width: 30, height: 30, background: '#1a1a2e', border: '1px solid #252540',
-            borderRadius: 8, color: '#6b7280', cursor: 'pointer', fontSize: 12,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            outline: 'none' }}>
-          {sheet === 'full' ? '▼' : '▲'}
-        </button>
-      </div>
-
-      {/* Hint cards */}
-      {sheet !== 'collapsed' && (
-        <div style={{ flex: 1, overflowY: 'auto', padding: '2px 12px 12px',
-          display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {hlNum === 0
-            ? <div style={{ textAlign: 'center', padding: '12px 0', fontSize: 12, color: '#4b5563' }}>
-                Drücke HINT+ für einen Hinweis
-              </div>
-            : [exercise.hints.level1, exercise.hints.level2, exercise.hints.level3]
-                .slice(0, hlNum)
-                .map((h, i) => (
-                  <div key={i} style={{ padding: '9px 12px', borderRadius: 10,
-                    background: '#0d0d14',
-                    border: `1px solid ${HINT_COLORS[i]}22`,
-                    borderLeft: `3px solid ${HINT_COLORS[i]}` }}>
-                    <div style={{ fontSize: 10, fontFamily: 'monospace', color: HINT_COLORS[i],
-                      marginBottom: 4, letterSpacing: '.06em' }}>HINT {i + 1}</div>
-                    <div style={{ fontFamily: 'monospace', fontSize: 13, color: '#d1d5db', lineHeight: 1.6 }}>
-                      {h}
-                    </div>
-                  </div>
-                ))
-          }
-          {solShown && (
-            <div style={{ padding: '9px 12px', borderRadius: 10,
-              background: 'rgba(239,68,68,.08)',
-              border: '1px solid rgba(239,68,68,.25)', borderLeft: '3px solid #ef4444' }}>
-              <div style={{ fontSize: 10, fontFamily: 'monospace', color: '#ef4444',
-                marginBottom: 4, letterSpacing: '.06em' }}>LÖSUNG</div>
-              <div style={{ fontFamily: 'monospace', fontSize: 13, color: '#4ade80', lineHeight: 1.6 }}>
-                {exercise.solution}
-              </div>
-            </div>
-          )}
-          {/* Chip legend */}
-          {chips.length > 0 && (
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap',
-              padding: '7px 10px', background: '#0d0d14',
-              borderRadius: 8, border: '1px solid #1e1e2e', marginTop: 2 }}>
-              {([
-                ['#4ade80', 'Richtig + Position ✓'],
-                ['#60a5fa', 'Falsche Position'],
-                ['#52606e', 'Kotlin-Syntax'],
-              ] as [string, string][]).map(([c, l]) => (
-                <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <div style={{ width: 7, height: 7, borderRadius: '50%', background: c, flexShrink: 0 }} />
-                  <span style={{ fontSize: 10, color: '#6b7280' }}>{l}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-
+  // ── Chips Row ──────────────────────────────────────────────────────────────
   const ChipsRow = () => (
-    <div style={{ flexShrink: 0, minHeight: 32, background: '#0a0a10',
-      borderBottom: '1px solid #1e1e2e',
-      display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4, padding: '4px 12px' }}>
+    <div style={{
+      minHeight: 32, flexShrink: 0, background: "#0a0a10",
+      borderTop: "1px solid #1e1e2e",
+      display: "flex", alignItems: "center", flexWrap: "wrap",
+      gap: 4, padding: "4px 12px",
+    }}>
       {chips.length === 0
-        ? <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#2a2a3e',
-            letterSpacing: '.08em' }}>• Warte auf Syntax-Elemente…</span>
+        ? <span style={{ fontSize: 10, fontFamily: "monospace", color: "#2a2a3e", letterSpacing: ".08em" }}>
+            • Syntax-Elemente erscheinen hier…
+          </span>
         : <>
             {chips.map((c, i) => {
-              const st = CHIP_STYLE[c.type] ?? CHIP_STYLE.unknown;
+              const st = CHIP[c.s] || CHIP.unknown;
               return (
-                <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 2,
-                  padding: '2px 7px', borderRadius: 6, fontSize: 12,
-                  fontFamily: 'monospace', fontWeight: 600, transition: 'all .15s',
-                  background: st.bg, border: `1px solid ${st.border}`, color: st.color }}>
-                  {c.text}
-                  {st.mark && <span style={{ fontSize: 9, opacity: .8 }}>{st.mark}</span>}
+                <span key={i} style={{
+                  display: "inline-flex", alignItems: "center", gap: 2,
+                  padding: "2px 7px", borderRadius: 6, fontSize: 12,
+                  fontFamily: "monospace", fontWeight: 600,
+                  background: st.bg, border: `1px solid ${st.border}`, color: st.color,
+                }}>
+                  {c.tok}{st.mark && <span style={{ fontSize: 9, opacity: .8 }}>{st.mark}</span>}
                 </span>
               );
             })}
             {solToks > 0 && (
-              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-                <div style={{ width: 40, height: 3, background: '#1e1e2e', borderRadius: 2, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', transition: 'width .25s', borderRadius: 2,
-                    width: `${pct}%`, background: pct === 100 ? '#22c55e' : '#7c3aed' }} />
+              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+                <div style={{ width: 40, height: 3, background: "#1e1e2e", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${pct}%`,
+                    background: pct === 100 ? "#22c55e" : "#7c3aed",
+                    borderRadius: 2, transition: "width .25s" }} />
                 </div>
-                <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700,
-                  color: pct === 100 ? '#4ade80' : '#6b7280', minWidth: 24 }}>{pct}%</span>
+                <span style={{ fontSize: 9, fontFamily: "monospace", fontWeight: 700,
+                  color: pct === 100 ? "#4ade80" : "#6b7280", minWidth: 24 }}>{pct}%</span>
               </div>
             )}
           </>
@@ -437,154 +246,348 @@ export const ExerciseScreen: React.FC<ExerciseScreenProps> = ({
     </div>
   );
 
-  const EditorArea = ({ clickable = false }: { clickable?: boolean }) => (
-    <div style={{ flex: 1, minHeight: 0, position: 'relative', background: '#0a0a10' }}
-      onClick={clickable ? () => { setFullscreen(true); setTimeout(() => taRef.current?.focus(), 100); } : undefined}>
+  // ── Token Bar ──────────────────────────────────────────────────────────────
+  const TokenBar = () => (
+    <div style={{
+      height: 48, background: "#0d0d14", borderTop: "1px solid #1e1e2e",
+      display: "flex", alignItems: "center", padding: "0 8px", gap: 5,
+      overflowX: "auto", scrollbarWidth: "none", flexShrink: 0,
+    }}>
+      {/* 💡 with dots + sheet toggle */}
+      <button onClick={requestHint} disabled={solShown} title="Nächster Hint"
+        style={{
+          height: 34, padding: "0 8px", borderRadius: 8, flexShrink: 0,
+          background: hl > 0 ? "rgba(249,115,22,.15)" : "#16162a",
+          border: `1px solid ${hl > 0 ? "rgba(249,115,22,.4)" : "#252540"}`,
+          color: solShown ? "#374151" : hl > 0 ? "#f97316" : "#6b7280",
+          cursor: solShown ? "default" : "pointer",
+          display: "flex", alignItems: "center", gap: 5, outline: "none",
+        }}>
+        <span style={{ fontSize: 14 }}>💡</span>
+        <div style={{ display: "flex", gap: 3 }}>
+          {[0, 1, 2].map(i => (
+            <div key={i} style={{
+              width: 5, height: 5, borderRadius: "50%",
+              background: i < hl ? HCOL[i] : "#252540",
+              transition: "background .2s",
+            }} />
+          ))}
+        </div>
+        {/* Sheet open/close arrow — separate tap area */}
+        <span
+          onClick={e => { e.stopPropagation(); setSheetH(s => s === null ? 200 : null); }}
+          style={{ fontSize: 10, color: "#4b5563", marginLeft: 2, padding: "2px 2px",
+            cursor: "pointer", lineHeight: 1 }}>
+          {SHEET_OPEN ? "▾" : "▴"}
+        </span>
+      </button>
 
-      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 28,
-        background: '#0d0d14', borderRight: '1px solid #1a1a28',
-        display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 10,
-        fontSize: 11, fontFamily: 'monospace', color: '#3a3a5a',
-        userSelect: 'none', pointerEvents: 'none' }}>1</div>
+      <div style={{ width: 1, height: 22, background: "#1e1e2e", flexShrink: 0 }} />
 
-      {ghostHint && (
-        <div style={{ position: 'absolute', left: 28, top: 0, right: 0,
-          padding: '10px 12px', pointerEvents: 'none',
-          fontFamily: "'JetBrains Mono',monospace", fontSize: 14, lineHeight: 1.75,
-          color: 'rgba(120,80,220,.3)', whiteSpace: 'pre-wrap' }}>
-          {ghostHint}
+      {/* Live check ▶ */}
+      <button onClick={check} title="Syntax prüfen"
+        style={{
+          width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+          background: isCorrect ? "rgba(34,197,94,.2)" : "#16162a",
+          border: `1.5px solid ${isCorrect ? "#22c55e" : "#252540"}`,
+          color: isCorrect ? "#4ade80" : "#6b7280",
+          cursor: "pointer", fontSize: 14, fontWeight: 700,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          transition: "all .2s", outline: "none",
+        }}>
+        {isCorrect ? "✓" : "▶"}
+      </button>
+
+      <div style={{ width: 1, height: 22, background: "#1e1e2e", flexShrink: 0 }} />
+
+      {/* Smart tokens */}
+      {smartToks.map((s, i) => (
+        <button key={i} onClick={() => insert(s)}
+          style={{
+            padding: "5px 10px", height: 34, flexShrink: 0,
+            background: "#16162a", border: "1px solid #252540",
+            borderRadius: 7, color: "#c4b5fd",
+            fontFamily: "monospace", fontSize: 12, fontWeight: 600,
+            cursor: "pointer", whiteSpace: "nowrap", outline: "none",
+          }}
+          onPointerDown={e => { e.currentTarget.style.background = "#7c3aed"; e.currentTarget.style.color = "#fff"; }}
+          onPointerUp={e => { e.currentTarget.style.background = "#16162a"; e.currentTarget.style.color = "#c4b5fd"; }}
+          onPointerLeave={e => { e.currentTarget.style.background = "#16162a"; e.currentTarget.style.color = "#c4b5fd"; }}
+        >{s}</button>
+      ))}
+    </div>
+  );
+
+  // ── Fallback bar (token bar OFF) ───────────────────────────────────────────
+  const FallbackBar = () => (
+    <div style={{
+      height: 44, background: "#0d0d14", borderTop: "1px solid #1e1e2e",
+      display: "flex", alignItems: "center", padding: "0 16px",
+      flexShrink: 0,
+    }}>
+      {/* 💡 Hint left */}
+      <button onClick={requestHint} disabled={solShown}
+        style={{
+          height: 36, padding: "0 14px", borderRadius: 10,
+          background: hl > 0 ? "rgba(249,115,22,.12)" : "rgba(255,255,255,.04)",
+          border: `1.5px solid ${hl > 0 ? "rgba(249,115,22,.35)" : "rgba(255,255,255,.08)"}`,
+          color: solShown ? "#374151" : hl > 0 ? "#f97316" : "#6b7280",
+          cursor: solShown ? "default" : "pointer",
+          display: "flex", alignItems: "center", gap: 7,
+          fontSize: 12, fontFamily: "monospace", fontWeight: 700, outline: "none",
+        }}>
+        <span style={{ fontSize: 15 }}>💡</span>
+        <div style={{ display: "flex", gap: 3 }}>
+          {[0, 1, 2].map(i => (
+            <div key={i} style={{
+              width: 6, height: 6, borderRadius: "50%",
+              background: i < hl ? HCOL[i] : "rgba(255,255,255,.1)",
+              transition: "background .2s",
+            }} />
+          ))}
+        </div>
+        {/* Toggle sheet */}
+        <span
+          onClick={e => { e.stopPropagation(); setSheetH(s => s === null ? 200 : null); }}
+          style={{ fontSize: 11, color: "#4b5563", marginLeft: 2, cursor: "pointer" }}>
+          {SHEET_OPEN ? "▾" : "▴"}
+        </span>
+      </button>
+
+      <div style={{ flex: 1 }} />
+
+      {/* CHECK right */}
+      <button onClick={check}
+        style={{
+          height: 36, padding: "0 20px", borderRadius: 10,
+          background: isCorrect
+            ? "linear-gradient(135deg,#16a34a,#22c55e)"
+            : "linear-gradient(135deg,#5b21b6,#7c3aed)",
+          border: "none", color: "#fff",
+          fontSize: 13, fontWeight: 700, cursor: "pointer", outline: "none",
+          boxShadow: isCorrect
+            ? "0 2px 12px rgba(34,197,94,.25)"
+            : "0 2px 12px rgba(124,58,237,.22)",
+          display: "flex", alignItems: "center", gap: 7,
+          transition: "background .3s",
+        }}
+        onPointerDown={e => e.currentTarget.style.transform = "scale(.96)"}
+        onPointerUp={e => e.currentTarget.style.transform = "scale(1)"}
+        onPointerLeave={e => e.currentTarget.style.transform = "scale(1)"}
+      >
+        {isCorrect ? "✓" : "▶"} CHECK
+      </button>
+    </div>
+  );
+
+  // ── Hint Sheet (free-height, drag to resize) ───────────────────────────────
+  const HintSheet = () => SHEET_OPEN ? (
+    <div style={{
+      height: sheetH,
+      background: "#111118",
+      borderTop: "1px solid #2a2a42",
+      display: "flex", flexDirection: "column",
+      overflow: "hidden",
+      borderRadius: "12px 12px 0 0",
+      boxShadow: "0 -6px 28px rgba(0,0,0,.5)",
+      transition: "height .18s cubic-bezier(.4,0,.2,1)",
+    }}>
+      {/* Drag handle */}
+      <div
+        onPointerDown={onSheetDragStart}
+        onPointerMove={onSheetDragMove}
+        onPointerUp={onSheetDragEnd}
+        onPointerCancel={onSheetDragEnd}
+        onTouchStart={onSheetDragStart}
+        onTouchMove={onSheetDragMove}
+        onTouchEnd={onSheetDragEnd}
+        style={{
+          flexShrink: 0, height: 20, cursor: "ns-resize",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          userSelect: "none", touchAction: "none",
+        }}>
+        <div style={{ width: 32, height: 4, borderRadius: 2, background: "#2a2a42" }} />
+      </div>
+
+      {/* Scrollable hint cards */}
+      <div style={{
+        flex: 1, overflowY: "auto", padding: "0 12px 14px",
+        display: "flex", flexDirection: "column", gap: 8,
+        scrollbarWidth: "none",
+      }}>
+        {hl === 0 && !solShown
+          ? <div style={{ textAlign: "center", padding: "10px 0", fontSize: 12, color: "#4b5563" }}>
+              Drücke 💡 für einen Hinweis
+            </div>
+          : [ex.hints[0], ex.hints[1], ex.hints[2]].slice(0, hl).map((h, i) => (
+              <div key={i} style={{
+                padding: "9px 12px", borderRadius: 10,
+                background: "#0d0d14",
+                border: `1px solid ${HCOL[i]}22`,
+                borderLeft: `3px solid ${HCOL[i]}`,
+              }}>
+                <div style={{ fontSize: 10, fontFamily: "monospace",
+                  color: HCOL[i], marginBottom: 4, letterSpacing: ".06em" }}>
+                  HINT {i + 1}
+                </div>
+                <div style={{ fontFamily: "monospace", fontSize: 13, color: "#d1d5db", lineHeight: 1.6 }}>
+                  {h}
+                </div>
+              </div>
+            ))
+        }
+
+        {solShown && (
+          <div style={{
+            padding: "9px 12px", borderRadius: 10,
+            background: "rgba(239,68,68,.08)",
+            border: "1px solid rgba(239,68,68,.25)",
+            borderLeft: "3px solid #ef4444",
+          }}>
+            <div style={{ fontSize: 10, fontFamily: "monospace",
+              color: "#ef4444", marginBottom: 4, letterSpacing: ".06em" }}>LÖSUNG</div>
+            <div style={{ fontFamily: "monospace", fontSize: 13, color: "#4ade80", lineHeight: 1.6 }}>
+              {ex.solution}
+            </div>
+          </div>
+        )}
+
+        {chips.length > 0 && (
+          <div style={{
+            display: "flex", gap: 10, flexWrap: "wrap",
+            padding: "6px 8px", background: "#0d0d14",
+            borderRadius: 8, border: "1px solid #1e1e2e",
+          }}>
+            {[["#4ade80","✓ Richtig+Pos."],["#60a5fa","~ Falsche Pos."],["#52606e","Kotlin-Syntax"]].map(([c,l]) => (
+              <div key={l} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: c }} />
+                <span style={{ fontSize: 10, color: "#6b7280" }}>{l}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  ) : null;
+
+  // ── Editor area ──────────────────────────────────────────────────────────
+  const EditorArea = ({ clickable = false }) => (
+    <div
+      style={{ flex: 1, minHeight: 0, position: "relative", background: "#0a0a10" }}
+      onClick={clickable ? () => { setFullscreen(true); setTimeout(() => taRef.current?.focus(), 80); } : undefined}
+    >
+      {/* Line number */}
+      <div style={{
+        position: "absolute", left: 0, top: 0, bottom: 0, width: 28,
+        background: "#0d0d14", borderRight: "1px solid #1a1a28",
+        display: "flex", alignItems: "flex-start", justifyContent: "center",
+        paddingTop: PAD_T, fontSize: 11, fontFamily: "monospace", color: "#3a3a5a",
+        userSelect: "none", pointerEvents: "none",
+      }}>1</div>
+
+      {/* Ghost hint — positioned below last code line */}
+      {showGhost && (
+        <div style={{
+          position: "absolute", left: 28, right: 0, top: ghostTop,
+          padding: "0 12px", pointerEvents: "none",
+          fontFamily: "'JetBrains Mono',monospace",
+          fontSize: 14, lineHeight: `${LINE_H}px`,
+          color: "rgba(120,80,220,.25)",
+          whiteSpace: "pre-wrap", zIndex: 5,
+        }}>
+          {currentHintText}
         </div>
       )}
 
-      <textarea ref={taRef} value={code}
+      <textarea
+        ref={taRef}
+        value={code}
         onChange={e => setCode(e.target.value)}
         readOnly={clickable}
-        style={{ position: 'absolute', inset: 0, left: 28,
-          background: 'transparent', border: 'none', outline: 'none',
-          fontFamily: "'JetBrains Mono',monospace", fontSize: 14, lineHeight: 1.75,
-          color: fb === 'correct' ? '#4ade80' : fb === 'incorrect' ? '#f87171' : '#e2e8f0',
-          padding: '10px 12px', resize: 'none', caretColor: '#7c3aed',
-          spellCheck: false, cursor: clickable ? 'pointer' : 'text' }}
-        placeholder={ghostHint ? '' : '// Code hier…'}
+        style={{
+          position: "absolute", inset: 0, left: 28,
+          background: "transparent", border: "none", outline: "none",
+          fontFamily: "'JetBrains Mono',monospace",
+          fontSize: 14, lineHeight: `${LINE_H}px`,
+          color: fb === "correct" ? "#4ade80" : fb === "incorrect" ? "#f87171" : "#e2e8f0",
+          padding: `${PAD_T}px 12px 10px`,
+          resize: "none", caretColor: "#7c3aed",
+          spellCheck: false, autoCorrect: "off", autoCapitalize: "off",
+          cursor: clickable ? "pointer" : "text", zIndex: 10,
+        }}
+        placeholder={showGhost ? "" : "// Code hier…"}
       />
 
       {fb && (
-        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: fb === 'correct' ? 'rgba(34,197,94,.07)' : 'rgba(248,113,113,.07)',
-          fontSize: 48 }}>
-          {fb === 'correct' ? '✅' : '❌'}
+        <div style={{
+          position: "absolute", inset: 0, pointerEvents: "none", zIndex: 20,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          background: fb === "correct" ? "rgba(34,197,94,.07)" : "rgba(248,113,113,.07)",
+          fontSize: 48,
+        }}>
+          {fb === "correct" ? "✅" : "❌"}
         </div>
       )}
     </div>
   );
 
-  // ── Accessory bar (fixed over keyboard) ──
-  const AccessoryBar = () => (
-    <div style={{ position: 'fixed', bottom: kbH, left: '50%', transform: 'translateX(-50%)',
-      width: '100%', maxWidth: 430, zIndex: 200,
-      display: 'flex', flexDirection: 'column',
-      transition: kbH > 0 ? 'none' : 'bottom .25s ease' }}>
-      {showChips && kbOpen && <ChipsRow />}
-      {showTokens && <TokenBar />}
+  // ── Accessory (fixed over keyboard) ────────────────────────────────────────
+  const AccessoryFixed = () => (
+    <div style={{
+      position: "fixed", bottom: kbH, left: "50%", transform: "translateX(-50%)",
+      width: "100%", maxWidth: 430, zIndex: 200,
+      display: "flex", flexDirection: "column",
+      transition: kbH > 0 ? "none" : "bottom .25s ease",
+    }}>
+      {/* Chips above tokens when kb open in fullscreen */}
+      {fullscreen && showChips && kbOpen && <ChipsRow />}
+      {showTokens ? <TokenBar /> : <FallbackBar />}
       <HintSheet />
     </div>
   );
 
   // ══════════════════════════════════════════════════════════════════════
-  // ZUORDNUNG MODE
-  // ══════════════════════════════════════════════════════════════════════
-  if (exercise.mode === 'assignment' && exercise.assignmentData) {
-    return (
-      <div className="flex flex-col h-screen bg-background text-text-primary overflow-hidden">
-        <header className="h-14 bg-surface flex items-center px-4 justify-between border-b border-surface-2 shrink-0">
-          <button onClick={onBack} className="p-2 rounded-lg bg-surface-2 text-text-secondary">
-            ←
-          </button>
-          <div className="text-center">
-            <div className="text-[9px] font-mono text-text-secondary uppercase tracking-wider">ZUORDNUNG</div>
-            <div className="text-sm font-bold">{exercise.conceptId}</div>
-          </div>
-          <button onClick={() => setNoteOpen(true)} className="p-2 rounded-lg bg-surface-2 text-text-secondary">💬</button>
-        </header>
-
-        <AssignmentView
-          exercise={exercise}
-          onComplete={(correct) => {
-            if (correct) {
-              completeExercise(exercise.id, exercise.conceptId, currentHintLevel);
-              onBack();
-            }
-          }}
-        />
-
-        <NoteModal
-          isOpen={noteOpen}
-          onClose={() => setNoteOpen(false)}
-          exerciseId={exercise.id}
-          initialNote={exerciseNotes[exercise.id] || ''}
-          onSave={(note) => saveExerciseNote(exercise.id, note)}
-        />
-      </div>
-    );
-  }
-
-  // ══════════════════════════════════════════════════════════════════════
-  // FULLSCREEN MODE
+  // FULLSCREEN
   // ══════════════════════════════════════════════════════════════════════
   if (fullscreen) {
     return (
       <>
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh',
-          maxWidth: 430, margin: '0 auto', background: '#060609', color: '#f1f0fb',
-          fontFamily: "'Inter',system-ui,sans-serif", overflow: 'hidden',
-          paddingBottom: kbH + totalAcc }}>
+        <style>{STYLES}</style>
+        <div style={{
+          display: "flex", flexDirection: "column",
+          height: "100dvh", maxWidth: 430, margin: "0 auto",
+          background: "#060609", color: "#f1f0fb",
+          fontFamily: "'Inter',system-ui,sans-serif", overflow: "hidden",
+          paddingBottom: kbH + TOKEN_H + (SHEET_OPEN ? sheetH : 0),
+        }}>
+          {/* Compact header */}
+          <div style={{
+            height: 46, flexShrink: 0, background: "#0d0d14",
+            borderBottom: "1px solid #1e1e2e",
+            display: "flex", alignItems: "center", padding: "0 10px", gap: 6,
+          }}>
+            <button onClick={() => { setFullscreen(false); taRef.current?.blur(); }} style={smallBtn()}>←</button>
 
-          {/* Fullscreen header */}
-          <div style={{ height: 48, flexShrink: 0, background: '#0d0d14',
-            borderBottom: '1px solid #1e1e2e',
-            display: 'flex', alignItems: 'center', padding: '0 10px', gap: 6 }}>
-
-            <button onClick={() => { setFullscreen(false); taRef.current?.blur(); }}
-              style={{ width: 34, height: 34, borderRadius: 9, background: 'transparent',
-                border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: 18,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                outline: 'none' }}>←</button>
-
-            <div style={{ flex: 1, textAlign: 'center' }}>
-              <div style={{ fontSize: 9, fontFamily: 'monospace', color: '#6b7280',
-                textTransform: 'uppercase', letterSpacing: '.1em' }}>ÜBUNG</div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: solved ? '#4ade80' : '#f1f0fb' }}>
-                {exercise.conceptId}{solved && ' ✓'}
+            <div style={{ flex: 1, textAlign: "center" }}>
+              <div style={{ fontSize: 9, fontFamily: "monospace", color: "#6b7280",
+                textTransform: "uppercase", letterSpacing: ".1em" }}>ÜBUNG</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: solved ? "#4ade80" : "#f1f0fb" }}>
+                {ex.conceptId}{solved && " ✓"}
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button style={iconBtnStyle(showChips)} onClick={() => setShowChips(p => !p)} title="Feedback-Chips">
-                <span style={{ fontSize: 13 }}>≡</span>
-              </button>
-              <button style={iconBtnStyle(showTokens)} onClick={() => setShowTokens(p => !p)} title="Token-Bar">
-                <span style={{ fontSize: 12 }}>⌨</span>
-              </button>
-              <button onClick={() => setNoteOpen(true)} style={iconBtnStyle(false)} title="Notizen">
-                <span style={{ fontSize: 12 }}>💬</span>
-              </button>
-            </div>
+            <button onClick={() => setShowChips(p => !p)} style={toggleBtn(showChips)} title="Feedback">≡</button>
+            <button onClick={() => setShowTokens(p => !p)} style={toggleBtn(showTokens)} title="Token-Bar">⌨</button>
           </div>
 
-          {/* Full editor */}
+          {/* Chips: shown ABOVE editor when kb is CLOSED in fullscreen */}
+          {showChips && !kbOpen && <ChipsRow />}
+
+          {/* Editor */}
           <EditorArea clickable={false} />
         </div>
 
-        <AccessoryBar />
-
-        <NoteModal
-          isOpen={noteOpen}
-          onClose={() => setNoteOpen(false)}
-          exerciseId={exercise.id}
-          initialNote={exerciseNotes[exercise.id] || ''}
-          onSave={(note) => saveExerciseNote(exercise.id, note)}
-        />
+        <AccessoryFixed />
       </>
     );
   }
@@ -594,91 +597,113 @@ export const ExerciseScreen: React.FC<ExerciseScreenProps> = ({
   // ══════════════════════════════════════════════════════════════════════
   return (
     <>
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh',
-        maxWidth: 430, margin: '0 auto', background: '#060609', color: '#f1f0fb',
-        fontFamily: "'Inter',system-ui,sans-serif", overflow: 'hidden',
-        paddingBottom: SH.collapsed }}>
-
+      <style>{STYLES}</style>
+      <div style={{
+        display: "flex", flexDirection: "column",
+        height: "100dvh", maxWidth: 430, margin: "0 auto",
+        background: "#060609", color: "#f1f0fb",
+        fontFamily: "'Inter',system-ui,sans-serif", overflow: "hidden",
+        paddingBottom: 44,
+      }}>
         {/* Header */}
-        <div style={{ height: 52, flexShrink: 0, background: '#0d0d14',
-          borderBottom: '1px solid #1e1e2e',
-          display: 'flex', alignItems: 'center', padding: '0 10px 0 14px', gap: 8 }}>
-
-          <button onClick={onBack}
-            style={{ width: 34, height: 34, background: 'transparent', border: 'none',
-              color: '#6b7280', cursor: 'pointer', display: 'flex', alignItems: 'center',
-              justifyContent: 'center', borderRadius: 8, outline: 'none' }}>
-            ←
-          </button>
-
-          <div style={{ flex: 1, textAlign: 'center', lineHeight: 1.3 }}>
-            <div style={{ fontSize: 9, fontFamily: 'monospace', color: '#6b7280',
-              textTransform: 'uppercase', letterSpacing: '.1em' }}>ÜBUNG</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: solved ? '#4ade80' : '#f1f0fb' }}>
-              {exercise.conceptId}{solved && ' ✓'}
+        <div style={{
+          height: 52, flexShrink: 0, background: "#0d0d14",
+          borderBottom: "1px solid #1e1e2e",
+          display: "flex", alignItems: "center", padding: "0 10px 0 14px", gap: 8,
+        }}>
+          <button style={smallBtn()}>←</button>
+          <div style={{ flex: 1, textAlign: "center", lineHeight: 1.3 }}>
+            <div style={{ fontSize: 9, fontFamily: "monospace", color: "#6b7280",
+              textTransform: "uppercase", letterSpacing: ".1em" }}>
+              ÜBUNG {exIdx + 1}/{EXERCISES.length}
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: solved ? "#4ade80" : "#f1f0fb" }}>
+              {ex.conceptId}{solved && " ✓"}
             </div>
           </div>
-
-          <button onClick={() => setNoteOpen(true)}
-            style={{ width: 30, height: 30, background: 'transparent', border: '1px solid #1e1e2e',
-              borderRadius: 7, color: '#6b7280', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', outline: 'none' }}>
-            💬
-          </button>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button style={smallBtn(28)} onClick={() => setExIdx(p => Math.max(0, p - 1))}>‹</button>
+            <button style={smallBtn(28)} onClick={() => setExIdx(p => Math.min(EXERCISES.length - 1, p + 1))}>›</button>
+          </div>
         </div>
 
         {/* Aufgabe */}
-        <div style={{ background: '#0d0d14', borderBottom: '1px solid #1e1e2e', flexShrink: 0 }}>
-          <button onClick={() => setTaskOpen(p => !p)}
-            style={{ width: '100%', display: 'flex', alignItems: 'center',
-              justifyContent: 'space-between', padding: '9px 14px',
-              background: 'none', border: 'none', cursor: 'pointer', color: '#f1f0fb', outline: 'none' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <span style={{ fontSize: 13 }}>📋</span>
-              <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#6b7280',
-                textTransform: 'uppercase', letterSpacing: '.08em' }}>Aufgabe</span>
+        <div style={{ background: "#0d0d14", borderBottom: "1px solid #1e1e2e", flexShrink: 0 }}>
+          <button onClick={() => setTaskOpen(p => !p)} style={{
+            width: "100%", display: "flex", alignItems: "center",
+            justifyContent: "space-between", padding: "9px 14px",
+            background: "none", border: "none", cursor: "pointer", color: "#f1f0fb", outline: "none",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <span>📋</span>
+              <span style={{ fontSize: 10, fontFamily: "monospace", color: "#6b7280",
+                textTransform: "uppercase", letterSpacing: ".08em" }}>Aufgabe</span>
             </div>
-            <span style={{ color: '#4b5563', fontSize: 13 }}>{taskOpen ? '▴' : '▾'}</span>
+            <span style={{ color: "#4b5563", fontSize: 12 }}>{taskOpen ? "▴" : "▾"}</span>
           </button>
           {taskOpen && (
-            <div style={{ padding: '0 14px 12px', fontSize: 14, lineHeight: 1.6, color: '#d1d5db' }}>
-              {exercise.initialCode && (
-                <div style={{ fontFamily: 'monospace', fontSize: 12, color: '#6b7280',
-                  background: '#111118', borderRadius: 6, padding: '5px 10px',
-                  marginBottom: 8, border: '1px solid #1e1e2e' }}>
-                  {exercise.initialCode}
+            <div style={{ padding: "0 14px 12px", fontSize: 14, lineHeight: 1.6, color: "#d1d5db" }}>
+              {ex.initialCode && (
+                <div style={{ fontFamily: "monospace", fontSize: 12, color: "#6b7280",
+                  background: "#111118", borderRadius: 6, padding: "5px 10px",
+                  marginBottom: 8, border: "1px solid #1e1e2e" }}>
+                  {ex.initialCode}
                 </div>
               )}
-              {exercise.task}
+              {ex.task}
             </div>
           )}
         </div>
 
-        {/* Editor — tap to go fullscreen */}
+        {/* Chips */}
+        <ChipsRow />
+
+        {/* Editor — tap → fullscreen */}
         <EditorArea clickable={true} />
 
-        {/* Tap hint */}
-        <div style={{ textAlign: 'center', padding: '5px 0', flexShrink: 0,
-          background: '#0a0a10', borderBottom: '1px solid #1e1e2e' }}>
-          <span style={{ fontSize: 10, color: '#2a2a3e', fontFamily: 'monospace' }}>
+        <div style={{ textAlign: "center", padding: "5px 0", flexShrink: 0,
+          background: "#0a0a10", borderBottom: "1px solid #1e1e2e" }}>
+          <span style={{ fontSize: 10, color: "#2a2a3e", fontFamily: "monospace" }}>
             Tippe auf den Editor zum Starten →
           </span>
         </div>
       </div>
 
-      {/* Hint sheet in normal view */}
-      <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)',
-        width: '100%', maxWidth: 430, zIndex: 200 }}>
+      {/* Fixed bottom in normal view */}
+      <div style={{
+        position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
+        width: "100%", maxWidth: 430, zIndex: 200,
+      }}>
+        <FallbackBar />
         <HintSheet />
       </div>
-
-      <NoteModal
-        isOpen={noteOpen}
-        onClose={() => setNoteOpen(false)}
-        exerciseId={exercise.id}
-        initialNote={exerciseNotes[exercise.id] || ''}
-        onSave={(note) => saveExerciseNote(exercise.id, note)}
-      />
     </>
   );
-};
+}
+
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+const smallBtn = (size = 34) => ({
+  width: size, height: size, borderRadius: 8,
+  background: "transparent", border: "none",
+  color: "#9ca3af", cursor: "pointer", fontSize: size > 30 ? 18 : 15,
+  display: "flex", alignItems: "center", justifyContent: "center",
+  flexShrink: 0, outline: "none",
+});
+
+const toggleBtn = (active) => ({
+  width: 32, height: 32, borderRadius: 8,
+  background: active ? "rgba(124,58,237,.3)" : "rgba(255,255,255,.05)",
+  border: active ? "1px solid rgba(124,58,237,.5)" : "1px solid rgba(255,255,255,.07)",
+  color: active ? "#c4b5fd" : "#6b7280",
+  cursor: "pointer", fontSize: 13,
+  display: "flex", alignItems: "center", justifyContent: "center",
+  outline: "none", transition: "all .15s",
+});
+
+const STYLES = `
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0;}
+  ::-webkit-scrollbar{display:none;}
+  body{background:#060609;overscroll-behavior:none;}
+  textarea{-webkit-user-select:text!important;user-select:text!important;}
+`;
