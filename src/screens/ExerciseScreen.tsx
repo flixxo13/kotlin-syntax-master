@@ -173,9 +173,11 @@ export function ExerciseScreen() {
   
   const [kbOpen, setKbOpen]         = useState(false);
   const [kbPadding, setKbPadding]   = useState(0);
-  
-  // ★ NEU: Verhindert versehentliches Antippen beim horizontalen Scrollen
   const [isScrollingTokens, setIsScrollingTokens] = useState(false);
+  
+  // ★ NEU: States für Polish-Features
+  const [taskAnchorOpen, setTaskAnchorOpen] = useState(false); // Mini-Task-Anker
+  const [tokenFlash, setTokenFlash] = useState(false);         // Micro-Animation
 
   const taRef = useRef<HTMLTextAreaElement>(null);
   const sheetDragY = useRef<number | null>(null);
@@ -184,7 +186,7 @@ export function ExerciseScreen() {
   // ── KEYBOARD LOCK-ON-OPEN ───────────────────────────────────────────────────
   useEffect(() => {
     const vv = window.visualViewport;
-    if (!vv) { dbg("NO VISUAL VIEWPORT"); return; }
+    if (!vv) return;
 
     let isOpen = false;
     let lockedH = 0;
@@ -194,18 +196,14 @@ export function ExerciseScreen() {
       const rawKbH = Math.max(0, baseHeight - vv.height);
       if (!isOpen) {
         if (rawKbH > 100) {
-          isOpen = true;
-          lockedH = rawKbH;
-          setKbOpen(true);
-          setKbPadding(lockedH);
+          isOpen = true; lockedH = rawKbH;
+          setKbOpen(true); setKbPadding(lockedH);
           dbg(`KB LOCKED @ ${Math.round(lockedH)}px`);
         }
       } else {
         if (rawKbH < 50) {
-          isOpen = false;
-          lockedH = 0;
-          setKbOpen(false);
-          setKbPadding(0);
+          isOpen = false; lockedH = 0;
+          setKbOpen(false); setKbPadding(0);
           dbg(`KB UNLOCKED & CLOSED`);
         }
       }
@@ -214,9 +212,7 @@ export function ExerciseScreen() {
     const onWinResize = () => {
       const newBase = window.innerHeight;
       if (Math.abs(newBase - baseHeight) > 50) {
-        baseHeight = newBase;
-        isOpen = false; lockedH = 0;
-        setKbPadding(0);
+        baseHeight = newBase; isOpen = false; lockedH = 0; setKbPadding(0);
         dbg(`BASE HEIGHT CHANGED → ${baseHeight}`);
         onVvResize();
       }
@@ -236,6 +232,7 @@ export function ExerciseScreen() {
     setHintLevel(0); setSolShown(false);
     setFb(null); setChips([]); setSolved(false);
     setTaskOpen(true); setSheetH(null); setFullscreen(false);
+    setTaskAnchorOpen(false); // Task-Anker beim Wechsel schließen
   }, [ex]);
 
   useEffect(() => { setChips(code.trim() ? analyze(code, ex.solution) : []); }, [code, ex.solution]);
@@ -265,6 +262,11 @@ export function ExerciseScreen() {
     if (ta) {
       const s = ta.selectionStart, e = ta.selectionEnd;
       setCode(code.slice(0, s) + text + code.slice(e));
+      
+      // ★ MICRO-ANIMATION: Lila Blitz beim Einrasten
+      setTokenFlash(true);
+      setTimeout(() => setTokenFlash(false), 200);
+      
       requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = s + text.length; ta.focus({ preventScroll: true }); });
     } else setCode(p => p + text);
   }, [code]);
@@ -295,9 +297,6 @@ export function ExerciseScreen() {
       <>
         <style>{STYLES}</style>
         <DebugOverlay />
-        
-        {/* ★ ULTIMATIVER ANDROID FIX: Flex-Layout statt position:fixed!
-            Verhindert den schwarzen Rand komplett, da nichts aus dem Viewport fällt. */}
         <div style={{
           display: "flex", flexDirection: "column",
           height: "100dvh", maxWidth: 430, margin: "0 auto",
@@ -306,43 +305,70 @@ export function ExerciseScreen() {
           paddingBottom: kbPadding + TOKEN_H + (SHEET_OPEN ? (sheetH || 0) : 0),
         }}>
           
-          {/* Header mit beiden Toggles */}
-          <div style={{ height: 46, flexShrink: 0, background: "#0d0d14", borderBottom: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 10px", gap: 6 }}>
+          {/* Header + Mini-Task-Anker Button */}
+          <div style={{ height: 46, flexShrink: 0, background: "#0d0d14", borderBottom: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 10px", gap: 6, position: "relative", zIndex: 110 }}>
             <button onClick={() => { setFullscreen(false); taRef.current?.blur(); }} style={smallBtn()}>←</button>
+            
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
               <div style={{ width: "80%", height: 2, background: "#1e1e2e", borderRadius: 2, overflow: "hidden" }}>
                 <div style={{ width: `${((exIdx + 1) / EXERCISES.length) * 100}%`, height: "100%", background: "#7c3aed", transition: "width 0.3s" }} />
               </div>
               <div style={{ fontSize: 11, fontWeight: 600, color: solved ? "#4ade80" : "#f1f0fb" }}>{ex.conceptId}{solved && " ✓"}</div>
             </div>
+
+            {/* ★ MINI-TASK-ANKER */}
+            <button onClick={() => setTaskAnchorOpen(p => !p)} style={{ ...smallBtn(28), background: taskAnchorOpen ? "rgba(124,58,237,.2)" : "transparent", color: taskAnchorOpen ? "#c4b5fd" : "#9ca3af", border: taskAnchorOpen ? "1px solid rgba(124,58,237,.4)" : "none" }}>📋</button>
             <button onClick={() => setShowChips(p => !p)} style={toggleBtn(showChips)}>≡</button>
             <button onClick={() => setShowTokens(p => !p)} style={toggleBtn(showTokens)}>⌨</button>
+
+            {/* ★ TASK-ANKER OVERLAY */}
+            {taskAnchorOpen && (
+              <div style={{
+                position: "absolute", top: "100%", left: 0, right: 0,
+                background: "#111118", borderBottom: "1px solid #2a2a42",
+                padding: "10px 14px", zIndex: 100,
+                boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+                borderTop: "2px solid #7c3aed"
+              }}>
+                {ex.initialCode && <div style={{ fontFamily: "monospace", fontSize: 11, color: "#6b7280", background: "#0a0a10", borderRadius: 4, padding: "4px 8px", marginBottom: 6, border: "1px solid #1e1e2e" }}>{ex.initialCode}</div>}
+                <div style={{ fontSize: 13, lineHeight: 1.5, color: "#d1d5db" }}>
+                  <HighlightTask text={ex.task} />
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Feedback Bar (Chips) */}
+          {/* ★ CHIPS MIT HORIZONTALEM SCROLL & FADE-EFFEKT */}
           {showChips && !kbOpen && (
-            <div style={{ minHeight: 32, flexShrink: 0, background: "#0a0a10", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, padding: "4px 12px" }}>
-              {chips.length === 0
-                ? <span style={{ fontSize: 10, fontFamily: "monospace", color: "#2a2a3e" }}>• Syntax-Elemente erscheinen hier…</span>
-                : <>
-                    {chips.map((c, i) => { const st = CHIP[c.s] || CHIP.unknown; return <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "2px 7px", borderRadius: 6, fontSize: 12, fontFamily: "monospace", fontWeight: 600, background: st.bg, border: `1px solid ${st.border}`, color: st.color }}>{c.tok}{st.mark && <span style={{ fontSize: 9, opacity: .8 }}>{st.mark}</span>}</span>; })}
-                    {solToks > 0 && (
-                      <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-                        <div style={{ width: 40, height: 3, background: "#1e1e2e", borderRadius: 2, overflow: "hidden" }}>
-                          <div style={{ height: "100%", width: `${pct}%`, background: pct === 100 ? "#22c55e" : "#7c3aed", borderRadius: 2, transition: "width .25s" }} />
+            <div style={{ minHeight: 32, flexShrink: 0, background: "#0a0a10", borderTop: "1px solid #1e1e2e", position: "relative" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 12px", overflowX: "auto", scrollbarWidth: "none", whiteSpace: "nowrap", WebkitOverflowScrolling: "touch" }}>
+                {chips.length === 0
+                  ? <span style={{ fontSize: 10, fontFamily: "monospace", color: "#2a2a3e" }}>• Syntax-Elemente erscheinen hier…</span>
+                  : <>
+                      {chips.map((c, i) => { const st = CHIP[c.s] || CHIP.unknown; return <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "3px 8px", borderRadius: 6, fontSize: 12, fontFamily: "monospace", fontWeight: 600, background: st.bg, border: `1px solid ${st.border}`, color: st.color }}>{c.tok}{st.mark && <span style={{ fontSize: 9, opacity: .8 }}>{st.mark}</span>}</span>; })}
+                      {solToks > 0 && (
+                        <div style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0, paddingLeft: 8 }}>
+                          <div style={{ width: 40, height: 3, background: "#1e1e2e", borderRadius: 2, overflow: "hidden" }}>
+                            <div style={{ height: "100%", width: `${pct}%`, background: pct === 100 ? "#22c55e" : "#7c3aed", borderRadius: 2, transition: "width .25s" }} />
+                          </div>
+                          <span style={{ fontSize: 9, fontFamily: "monospace", fontWeight: 700, color: pct === 100 ? "#4ade80" : "#6b7280", minWidth: 24 }}>{pct}%</span>
                         </div>
-                        <span style={{ fontSize: 9, fontFamily: "monospace", fontWeight: 700, color: pct === 100 ? "#4ade80" : "#6b7280", minWidth: 24 }}>{pct}%</span>
-                      </div>
-                    )}
-                  </>
-              }
+                      )}
+                    </>
+                }
+              </div>
+              {/* ★ FADE-EFFEKT RECHTS */}
+              <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: 25, background: "linear-gradient(to right, rgba(10,10,16,0), #0a0a10)", pointerEvents: "none" }} />
             </div>
           )}
 
-          {/* Editor */}
+          {/* Editor mit Flash-Animation */}
           <div style={{ 
             flex: 1, minHeight: 0, position: "relative", background: "#0a0a10",
-            animation: fb === "incorrect" ? "shake 0.4s cubic-bezier(.36,.07,.19,.97) both" : "none"
+            animation: fb === "incorrect" ? "shake 0.4s cubic-bezier(.36,.07,.19,.97) both" : "none",
+            // ★ MICRO-ANIMATION: Lila Border-Flash bei Token-Insert
+            boxShadow: tokenFlash ? "inset 0 0 25px rgba(124, 58, 237, 0.4)" : "none",
+            transition: "box-shadow 0.15s ease-out"
           }}>
             <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 28, background: "#0d0d14", borderRight: "1px solid #1a1a28", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: PAD_T, fontSize: 11, fontFamily: "monospace", color: "#3a3a5a", userSelect: "none", pointerEvents: "none" }}>1</div>
             
@@ -356,7 +382,7 @@ export function ExerciseScreen() {
               ref={taRef}
               value={code}
               onChange={e => setCode(e.target.value)}
-              onFocus={() => dbg("FOCUS ← textarea")}
+              onFocus={() => { dbg("FOCUS"); setTaskAnchorOpen(false); }} // Task-Anker schließen bei Fokus
               onBlur={(e) => dbg(`BLUR → relatedTarget:${(e.relatedTarget as HTMLElement)?.tagName ?? "null"}`)}
               autoFocus
               inputMode="text"
@@ -382,7 +408,7 @@ export function ExerciseScreen() {
             )}
           </div>
 
-          {/* ★ TOOLBAR IM FLEX-FLOW (Kein position: fixed mehr!) */}
+          {/* TOOLBAR IM FLEX-FLOW */}
           <div style={{ flexShrink: 0, display: "flex", flexDirection: "column" }}>
             {showChips && kbOpen && (
               <div style={{ minHeight: 32, background: "#0a0a10", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, padding: "4px 12px" }}>
@@ -391,7 +417,6 @@ export function ExerciseScreen() {
             )}
 
             {showTokens ? (
-              // ★ SCROLL-SCHUTZ FÜR TOKENS
               <div 
                 style={{ height: 48, background: "#0d0d14", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 8px", gap: 5, overflowX: "auto", scrollbarWidth: "none", flexShrink: 0 }}
                 onTouchStart={() => setIsScrollingTokens(false)}
@@ -415,11 +440,7 @@ export function ExerciseScreen() {
                 
                 {smartToks.map((s, i) => (
                   <button key={i} 
-                    onTouchEnd={(e) => { 
-                      e.preventDefault(); 
-                      if (isScrollingTokens) return; // ★ BLOCKIERT KLICKS BEIM WISCHEN
-                      insert(s); 
-                    }} 
+                    onTouchEnd={(e) => { e.preventDefault(); if (isScrollingTokens) return; insert(s); }} 
                     onClick={() => { if (isScrollingTokens) return; insert(s); }}
                     style={{ padding: "5px 10px", height: 34, flexShrink: 0, background: "#16162a", border: "1px solid #252540", borderRadius: 7, color: "#c4b5fd", fontFamily: "monospace", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", outline: "none" }}>{s}</button>
                 ))}
@@ -439,7 +460,7 @@ export function ExerciseScreen() {
               </div>
             )}
 
-            {/* ★ HINT SHEET KOMPLETT REPARIERT */}
+            {/* HINT SHEET */}
             {SHEET_OPEN && (
               <div style={{ height: sheetH!, background: "#111118", borderTop: "1px solid #2a2a42", display: "flex", flexDirection: "column", overflow: "hidden", borderRadius: "12px 12px 0 0", boxShadow: "0 -6px 28px rgba(0,0,0,.5)" }}>
                 <div onPointerDown={onSheetDragStart} onPointerMove={onSheetDragMove} onPointerUp={onSheetDragEnd} onPointerCancel={onSheetDragEnd}
@@ -505,11 +526,14 @@ export function ExerciseScreen() {
           )}
         </div>
 
-        <div style={{ minHeight: 32, flexShrink: 0, background: "#0a0a10", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, padding: "4px 12px" }}>
-          {chips.length === 0
-            ? <span style={{ fontSize: 10, fontFamily: "monospace", color: "#2a2a3e", letterSpacing: ".08em" }}>• Syntax-Elemente erscheinen hier…</span>
-            : chips.map((c, i) => { const st = CHIP[c.s] || CHIP.unknown; return <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "2px 7px", borderRadius: 6, fontSize: 12, fontFamily: "monospace", fontWeight: 600, background: st.bg, border: `1px solid ${st.border}`, color: st.color }}>{c.tok}{st.mark && <span style={{ fontSize: 9, opacity: .8 }}>{st.mark}</span>}</span>; })
-          }
+        <div style={{ minHeight: 32, flexShrink: 0, background: "#0a0a10", borderTop: "1px solid #1e1e2e", position: "relative" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 12px", overflowX: "auto", scrollbarWidth: "none", whiteSpace: "nowrap" }}>
+            {chips.length === 0
+              ? <span style={{ fontSize: 10, fontFamily: "monospace", color: "#2a2a3e", letterSpacing: ".08em" }}>• Syntax-Elemente erscheinen hier…</span>
+              : chips.map((c, i) => { const st = CHIP[c.s] || CHIP.unknown; return <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "3px 8px", borderRadius: 6, fontSize: 12, fontFamily: "monospace", fontWeight: 600, background: st.bg, border: `1px solid ${st.border}`, color: st.color }}>{c.tok}{st.mark && <span style={{ fontSize: 9, opacity: .8 }}>{st.mark}</span>}</span>; })
+            }
+          </div>
+          <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: 25, background: "linear-gradient(to right, rgba(10,10,16,0), #0a0a10)", pointerEvents: "none" }} />
         </div>
 
         <div style={{ flex: 1, minHeight: 0, position: "relative", background: "#0a0a10", cursor: "pointer" }} onClick={openFullscreenAndFocus}>
@@ -547,14 +571,12 @@ const STYLES = `
   *{box-sizing:border-box;margin:0;padding:0;}
   ::-webkit-scrollbar{display:none;}
   
-  /* ★ KRITISCH FÜR ANDROID: Verhindert den schwarzen Rand beim Scrollen komplett! */
   html, body {
     background:#060609;
     overscroll-behavior: contain; 
     -webkit-overflow-scrolling: touch;
   }
   
-  /* Zwingt die Textarea, den Viewport beim Scrollen nicht zu verschieben */
   textarea {
     -webkit-user-select:text!important;
     user-select:text!important;
