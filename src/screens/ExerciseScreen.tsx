@@ -35,15 +35,15 @@ const KW = new Set(["val","var","fun","if","else","when","for","while","return",
 const ST = new Set(["(",")","{","}","[","]","=",":",".","->","?:","?.","!!",
   "+","-","*","/","%","<",">","==","!=","&&","||","!",","]);
 
-function tokenize(code) {
+function tokenize(code: string) {
   if (!code.trim()) return [];
   const re = /\?:|\.\.\.|\?\.|!!|->|<=|>=|==|!=|&&|\|\||[+\-*/%<>!]|[(){}[\]=:.,]|"[^"]*"|\d+\.?\d*|\b\w+\.?\w*\b|\S/g;
-  const out = []; let m;
+  const out: string[] = []; let m: RegExpExecArray | null;
   while ((m = re.exec(code)) !== null) out.push(m[0]);
   return out;
 }
 
-function analyze(code, solution) {
+function analyze(code: string, solution: string) {
   const ct = tokenize(code), st = tokenize(solution);
   return ct.map((tok, i) => ({
     tok,
@@ -54,7 +54,7 @@ function analyze(code, solution) {
   }));
 }
 
-const CHIP = {
+const CHIP: Record<string, { bg: string; border: string; color: string; mark: string | null }> = {
   correct: { bg:"rgba(34,197,94,.2)",   border:"rgba(34,197,94,.6)",   color:"#4ade80", mark:"✓" },
   present: { bg:"rgba(59,130,246,.2)",  border:"rgba(59,130,246,.6)",  color:"#60a5fa", mark:"~" },
   syntax:  { bg:"rgba(100,116,139,.1)", border:"rgba(100,116,139,.2)", color:"#52606e", mark:null },
@@ -63,7 +63,7 @@ const CHIP = {
 
 const HCOL = ["#f97316","#fb923c","#fca5a5"];
 
-function getSmartTokens(code) {
+function getSmartTokens(code: string) {
   const t = code.trimEnd();
   if (!t)                        return ["val","var","fun","if","when","for","return"];
   if (/=\s*$/.test(t))           return ["2.0","0","true","false",'"text"',"null","input","n","1","listOf("];
@@ -86,7 +86,7 @@ const smallBtn = (size = 34) => ({
   flexShrink: 0, outline: "none",
 });
 
-const toggleBtn = (active) => ({
+const toggleBtn = (active: boolean) => ({
   width: 32, height: 32, borderRadius: 8,
   background: active ? "rgba(124,58,237,.3)" : "rgba(255,255,255,.05)",
   border: active ? "1px solid rgba(124,58,237,.5)" : "1px solid rgba(255,255,255,.07)",
@@ -118,27 +118,15 @@ function DebugOverlay() {
   return (
     <div style={{
       position: "fixed", top: 0, right: 0, zIndex: 9999,
-      width: visible ? 220 : 36,
-      maxHeight: "50vh",
-      background: "rgba(0,0,0,.88)",
-      border: "1px solid #333",
-      borderRadius: "0 0 0 8px",
-      overflow: "hidden",
-      fontSize: 9,
-      fontFamily: "monospace",
+      width: visible ? 220 : 36, maxHeight: "50vh",
+      background: "rgba(0,0,0,.88)", border: "1px solid #333",
+      borderRadius: "0 0 0 8px", overflow: "hidden",
+      fontSize: 9, fontFamily: "monospace",
     }}>
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "3px 6px", background: "#111", borderBottom: "1px solid #333",
-        cursor: "pointer",
-      }} onClick={() => setVisible(v => !v)}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "3px 6px", background: "#111", borderBottom: "1px solid #333", cursor: "pointer" }}
+        onClick={() => setVisible(v => !v)}>
         <span style={{ color: "#f97316", fontWeight: 700 }}>🐛 {visible ? "LOG" : ""}</span>
-        {visible && (
-          <button
-            onClick={(e) => { e.stopPropagation(); _logLines = []; setLines([]); }}
-            style={{ background: "none", border: "none", color: "#6b7280", fontSize: 9, cursor: "pointer" }}
-          >CLR</button>
-        )}
+        {visible && <button onClick={(e) => { e.stopPropagation(); _logLines = []; setLines([]); }} style={{ background: "none", border: "none", color: "#6b7280", fontSize: 9, cursor: "pointer" }}>CLR</button>}
       </div>
       {visible && (
         <div style={{ overflowY: "auto", maxHeight: "calc(50vh - 24px)", padding: "4px 6px" }}>
@@ -146,14 +134,8 @@ function DebugOverlay() {
             ? <div style={{ color: "#333" }}>– warte auf Events –</div>
             : lines.map((l, i) => (
                 <div key={i} style={{
-                  color: l.includes("BLUR") ? "#f87171"
-                       : l.includes("FOCUS") ? "#4ade80"
-                       : l.includes("KB") ? "#60a5fa"
-                       : l.includes("ERR") ? "#fbbf24"
-                       : "#9ca3af",
-                  borderBottom: "1px solid #111",
-                  padding: "1px 0",
-                  wordBreak: "break-all",
+                  color: l.includes("BLUR") ? "#f87171" : l.includes("FOCUS") ? "#4ade80" : l.includes("KB") ? "#60a5fa" : "#9ca3af",
+                  borderBottom: "1px solid #111", padding: "1px 0", wordBreak: "break-all",
                 }}>{l}</div>
               ))
           }
@@ -186,18 +168,21 @@ export function ExerciseScreen() {
   const sheetDragY = useRef<number | null>(null);
   const sheetDragH = useRef<number | null>(null);
 
-  // ── visualViewport ──
+  // ── visualViewport ──────────────────────────────────────────────────────────
+  // FIX: Nur vv.height verwenden, NICHT vv.offsetTop!
+  // offsetTop ändert sich beim Scrollen (Chrome Adressleiste) → falscher kbH → Blur
   useEffect(() => {
     const vv = window.visualViewport;
-    dbg(`INIT: VV=${!!vv} innerH=${window.innerHeight} UA=${navigator.userAgent.slice(0,40)}`);
+    dbg(`INIT: VV=${!!vv} innerH=${window.innerHeight}`);
     if (!vv) return;
 
     let rafId: number;
     const upd = () => {
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
-        const newH = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-        dbg(`KB resize vvH=${Math.round(vv.height)} off=${Math.round(vv.offsetTop)} → kbH=${Math.round(newH)}`);
+        // ✅ KORREKTUR: offsetTop WEGLASSEN – nur height zählt für Tastaturhöhe
+        const newH = Math.max(0, window.innerHeight - vv.height);
+        dbg(`KB vvH=${Math.round(vv.height)} off=${Math.round(vv.offsetTop)} → kbH=${Math.round(newH)}`);
         setKbH(prev => {
           if (Math.abs(prev - newH) > 50) {
             dbg(`KB STATE ${Math.round(prev)}→${Math.round(newH)}`);
@@ -209,11 +194,10 @@ export function ExerciseScreen() {
     };
 
     vv.addEventListener("resize", upd);
-    vv.addEventListener("scroll", upd);
+    // ✅ KEIN scroll-listener mehr – scroll ändert offsetTop, nicht height
     upd();
     return () => {
       vv.removeEventListener("resize", upd);
-      vv.removeEventListener("scroll", upd);
       cancelAnimationFrame(rafId);
     };
   }, []);
@@ -266,8 +250,8 @@ export function ExerciseScreen() {
       setCode(newCode);
       requestAnimationFrame(() => {
         ta.selectionStart = ta.selectionEnd = s + text.length;
-        dbg(`insert "${text}" → refocus`);
         ta.focus({ preventScroll: true });
+        dbg(`insert "${text}" ok`);
       });
     } else {
       setCode(p => p + text);
@@ -275,16 +259,13 @@ export function ExerciseScreen() {
   }, [code]);
 
   const openFullscreenAndFocus = useCallback(() => {
-    dbg("openFullscreen click");
+    dbg("openFullscreen");
     setFullscreen(true);
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const ta = taRef.current;
-        dbg(`rAF2: ta=${!!ta}`);
-        if (ta) {
-          ta.focus({ preventScroll: true });
-          dbg("focus() called on textarea");
-        }
+        if (ta) { ta.focus({ preventScroll: true }); dbg("focus() called"); }
+        else { dbg("ERR: ta ref null"); }
       });
     });
   }, []);
@@ -296,14 +277,12 @@ export function ExerciseScreen() {
   const onSheetDragMove = (e: any) => {
     if (sheetDragY.current === null) return;
     const y = "touches" in e ? e.touches[0].clientY : e.clientY;
-    const dy = sheetDragY.current - y;
-    setSheetH(Math.max(60, Math.min(420, (sheetDragH.current || 200) + dy)));
+    setSheetH(Math.max(60, Math.min(420, (sheetDragH.current || 200) + (sheetDragY.current - y))));
   };
   const onSheetDragEnd = (e: any) => {
     const y = "changedTouches" in e ? e.changedTouches[0].clientY : e.clientY;
     if ((sheetDragY.current || 0) - y < -60) setSheetH(null);
-    sheetDragY.current = null;
-    sheetDragH.current = null;
+    sheetDragY.current = null; sheetDragH.current = null;
   };
 
   const codeLines = code ? code.split("\n").length : 0;
@@ -357,10 +336,7 @@ export function ExerciseScreen() {
               {chips.length === 0
                 ? <span style={{ fontSize: 10, fontFamily: "monospace", color: "#2a2a3e" }}>• Syntax-Elemente erscheinen hier…</span>
                 : <>
-                    {chips.map((c, i) => {
-                      const st = CHIP[c.s] || CHIP.unknown;
-                      return <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "2px 7px", borderRadius: 6, fontSize: 12, fontFamily: "monospace", fontWeight: 600, background: st.bg, border: `1px solid ${st.border}`, color: st.color }}>{c.tok}{st.mark && <span style={{ fontSize: 9, opacity: .8 }}>{st.mark}</span>}</span>;
-                    })}
+                    {chips.map((c, i) => { const st = CHIP[c.s] || CHIP.unknown; return <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "2px 7px", borderRadius: 6, fontSize: 12, fontFamily: "monospace", fontWeight: 600, background: st.bg, border: `1px solid ${st.border}`, color: st.color }}>{c.tok}{st.mark && <span style={{ fontSize: 9, opacity: .8 }}>{st.mark}</span>}</span>; })}
                     {solToks > 0 && (
                       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
                         <div style={{ width: 40, height: 3, background: "#1e1e2e", borderRadius: 2, overflow: "hidden" }}>
@@ -386,8 +362,8 @@ export function ExerciseScreen() {
               ref={taRef}
               value={code}
               onChange={e => setCode(e.target.value)}
-              onFocus={() => dbg("FOCUS ← textarea got focus")}
-              onBlur={(e) => dbg(`BLUR → relatedTarget:${(e.relatedTarget as HTMLElement)?.tagName ?? "null"} | kbH:${Math.round(kbH)}`)}
+              onFocus={() => dbg("FOCUS ← textarea")}
+              onBlur={(e) => dbg(`BLUR → relatedTarget:${(e.relatedTarget as HTMLElement)?.tagName ?? "null"} kbH:${Math.round(kbH)}`)}
               autoFocus
               inputMode="text"
               enterKeyHint="done"
@@ -413,7 +389,7 @@ export function ExerciseScreen() {
           </div>
         </div>
 
-        {/* Fixed Accessory */}
+        {/* Fixed Accessory – sitzt direkt auf der Tastatur */}
         <div style={{ position: "fixed", bottom: kbH, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 430, zIndex: 200, display: "flex", flexDirection: "column" }}>
           {showChips && kbOpen && (
             <div style={{ minHeight: 32, flexShrink: 0, background: "#0a0a10", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, padding: "4px 12px" }}>
@@ -458,7 +434,9 @@ export function ExerciseScreen() {
 
           {SHEET_OPEN && (
             <div style={{ height: sheetH!, background: "#111118", borderTop: "1px solid #2a2a42", display: "flex", flexDirection: "column", overflow: "hidden", borderRadius: "12px 12px 0 0", boxShadow: "0 -6px 28px rgba(0,0,0,.5)" }}>
-              <div onPointerDown={onSheetDragStart} onPointerMove={onSheetDragMove} onPointerUp={onSheetDragEnd} onPointerCancel={onSheetDragEnd} onTouchStart={onSheetDragStart} onTouchMove={onSheetDragMove} onTouchEnd={onSheetDragEnd} style={{ flexShrink: 0, height: 20, cursor: "ns-resize", display: "flex", alignItems: "center", justifyContent: "center", userSelect: "none", touchAction: "none" }}>
+              <div onPointerDown={onSheetDragStart} onPointerMove={onSheetDragMove} onPointerUp={onSheetDragEnd} onPointerCancel={onSheetDragEnd}
+                onTouchStart={onSheetDragStart} onTouchMove={onSheetDragMove} onTouchEnd={onSheetDragEnd}
+                style={{ flexShrink: 0, height: 20, cursor: "ns-resize", display: "flex", alignItems: "center", justifyContent: "center", userSelect: "none", touchAction: "none" }}>
                 <div style={{ width: 32, height: 4, borderRadius: 2, background: "#2a2a42" }} />
               </div>
               <div style={{ flex: 1, overflowY: "auto", padding: "0 12px 14px", display: "flex", flexDirection: "column", gap: 8, scrollbarWidth: "none" }}>
