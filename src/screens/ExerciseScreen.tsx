@@ -316,21 +316,13 @@ export function ExerciseScreen() {
       <>
         <style>{STYLES}</style>
         <DebugOverlay />
-        
-        {/* ★ ANDROID FIX 1: overflow: hidden + paddingBottom statt fixed Toolbar */}
         <div style={{
-          display: "flex",
-          flexDirection: "column",
-          height: "100dvh",
-          maxWidth: 430,
-          margin: "0 auto",
-          background: "#060609",
-          color: "#f1f0fb",
-          fontFamily: "'Inter',system-ui,sans-serif",
-          overflow: "hidden", // Verhindert, dass Android den Root mit der Textarea mitscrollt
-          paddingBottom: kbPadding, // Reserviert unsichtbar den Platz für die Tastatur
+          display: "flex", flexDirection: "column",
+          height: "100dvh", maxWidth: 430, margin: "0 auto",
+          background: "#060609", color: "#f1f0fb",
+          fontFamily: "'Inter',system-ui,sans-serif", overflow: "hidden",
+          paddingBottom: kbPadding + TOKEN_H + (SHEET_OPEN ? (sheetH || 0) : 0),
         }}>
-          
           {/* Header */}
           <div style={{ height: 46, flexShrink: 0, background: "#0d0d14", borderBottom: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 10px", gap: 6 }}>
             <button onClick={() => { setFullscreen(false); taRef.current?.blur(); }} style={smallBtn()}>←</button>
@@ -372,14 +364,8 @@ export function ExerciseScreen() {
             </div>
           )}
 
-          {/* ★ ANDROID FIX 2: Editor Wrapper bekommt overflow: hidden */}
-          <div style={{ 
-            flex: 1, 
-            minHeight: 0, 
-            position: "relative", 
-            background: "#0a0a10",
-            overflow: "hidden" // Verhindert Scroll-Propagation aus der Textarea an den Root
-          }}>
+          {/* Editor */}
+          <div style={{ flex: 1, minHeight: 0, position: "relative", background: "#0a0a10" }}>
             <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 28, background: "#0d0d14", borderRight: "1px solid #1a1a28", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: PAD_T, fontSize: 11, fontFamily: "monospace", color: "#3a3a5a", userSelect: "none", pointerEvents: "none" }}>1</div>
             {showGhost && (
               <div style={{ position: "absolute", left: 28, right: 0, top: ghostTop, padding: "0 12px", pointerEvents: "none", fontFamily: "'JetBrains Mono',monospace", fontSize: 14, lineHeight: `${LINE_H}px`, color: "rgba(120,80,220,.25)", whiteSpace: "pre-wrap", zIndex: 5 }}>
@@ -415,84 +401,88 @@ export function ExerciseScreen() {
               </div>
             )}
           </div>
+        </div>
 
-          {/* ★ ANDROID FIX 3: Toolbar IM LAYOUT FLOW (KEIN position: fixed mehr!) */}
-          <div style={{ 
-            flexShrink: 0, 
-            position: "relative", 
-            zIndex: 50, 
-            display: "flex", 
-            flexDirection: "column",
-            background: "#0d0d14"
-          }}>
-            {showChips && kbOpen && (
-              <div style={{ minHeight: 32, flexShrink: 0, background: "#0a0a10", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, padding: "4px 12px" }}>
-                {chips.map((c, i) => { const st = CHIP[c.s] || CHIP.unknown; return <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "2px 7px", borderRadius: 6, fontSize: 12, fontFamily: "monospace", fontWeight: 600, background: st.bg, border: `1px solid ${st.border}`, color: st.color }}>{c.tok}{st.mark && <span style={{ fontSize: 9, opacity: .8 }}>{st.mark}</span>}</span>; })}
-              </div>
-            )}
+        {/* ★ ANDROID FIX: Toolbar wieder auf fixed (ohne html{position:fixed} funktioniert das!)}
+            position: fixed zieht Android nicht mehr mit hoch, weil der Viewport jetzt stabil bleibt. */}
+        <div style={{
+          position: "fixed",
+          bottom: kbPadding, 
+          left: "50%",
+          transform: "translateX(-50%)",
+          width: "100%",
+          maxWidth: 430,
+          zIndex: 200,
+          display: "flex",
+          flexDirection: "column",
+        }}>
+          {showChips && kbOpen && (
+            <div style={{ minHeight: 32, flexShrink: 0, background: "#0a0a10", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, padding: "4px 12px" }}>
+              {chips.map((c, i) => { const st = CHIP[c.s] || CHIP.unknown; return <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "2px 7px", borderRadius: 6, fontSize: 12, fontFamily: "monospace", fontWeight: 600, background: st.bg, border: `1px solid ${st.border}`, color: st.color }}>{c.tok}{st.mark && <span style={{ fontSize: 9, opacity: .8 }}>{st.mark}</span>}</span>; })}
+            </div>
+          )}
 
-            {showTokens ? (
-              <div style={{ height: 48, background: "#0d0d14", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 8px", gap: 5, overflowX: "auto", scrollbarWidth: "none", flexShrink: 0 }}>
-                <button onTouchEnd={(e) => { e.preventDefault(); requestHint(); }} onClick={requestHint} disabled={solShown}
-                  style={{ height: 34, padding: "0 8px", borderRadius: 8, flexShrink: 0, background: hl > 0 ? "rgba(249,115,22,.15)" : "#16162a", border: `1px solid ${hl > 0 ? "rgba(249,115,22,.4)" : "#252540"}`, color: solShown ? "#374151" : hl > 0 ? "#f97316" : "#6b7280", cursor: solShown ? "default" : "pointer", display: "flex", alignItems: "center", gap: 5, outline: "none" }}>
-                  <span style={{ fontSize: 14 }}>💡</span>
-                  <div style={{ display: "flex", gap: 3 }}>{[0,1,2].map(i => <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: i < hl ? HCOL[i] : "#252540" }} />)}</div>
-                  <span onTouchEnd={e => { e.preventDefault(); e.stopPropagation(); setSheetH(s => s === null ? 200 : null); }} onClick={e => { e.stopPropagation(); setSheetH(s => s === null ? 200 : null); }} style={{ fontSize: 10, color: "#4b5563", marginLeft: 2, padding: "4px", cursor: "pointer", lineHeight: 1 }}>{SHEET_OPEN ? "▾" : "▴"}</span>
-                </button>
-                <div style={{ width: 1, height: 22, background: "#1e1e2e", flexShrink: 0 }} />
-                <button onTouchEnd={(e) => { e.preventDefault(); check(); }} onClick={check}
-                  style={{ width: 34, height: 34, borderRadius: 8, flexShrink: 0, background: isCorrect ? "rgba(34,197,94,.2)" : "#16162a", border: `1.5px solid ${isCorrect ? "#22c55e" : "#252540"}`, color: isCorrect ? "#4ade80" : "#6b7280", cursor: "pointer", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", outline: "none" }}>
-                  {isCorrect ? "✓" : "▶"}
-                </button>
-                <div style={{ width: 1, height: 22, background: "#1e1e2e", flexShrink: 0 }} />
-                {smartToks.map((s, i) => (
-                  <button key={i} onTouchEnd={(e) => { e.preventDefault(); insert(s); }} onClick={() => insert(s)}
-                    style={{ padding: "5px 10px", height: 34, flexShrink: 0, background: "#16162a", border: "1px solid #252540", borderRadius: 7, color: "#c4b5fd", fontFamily: "monospace", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", outline: "none" }}>{s}</button>
-                ))}
-              </div>
-            ) : (
-              <div style={{ height: 44, background: "#0d0d14", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 16px", flexShrink: 0 }}>
-                <button onTouchEnd={(e) => { e.preventDefault(); requestHint(); }} onClick={requestHint} disabled={solShown}
-                  style={{ height: 36, padding: "0 14px", borderRadius: 10, background: hl > 0 ? "rgba(249,115,22,.12)" : "rgba(255,255,255,.04)", border: `1.5px solid ${hl > 0 ? "rgba(249,115,22,.35)" : "rgba(255,255,255,.08)"}`, color: solShown ? "#374151" : hl > 0 ? "#f97316" : "#6b7280", cursor: solShown ? "default" : "pointer", display: "flex", alignItems: "center", gap: 7, fontSize: 12, fontFamily: "monospace", fontWeight: 700, outline: "none" }}>
-                  <span style={{ fontSize: 15 }}>💡</span>
-                  <div style={{ display: "flex", gap: 3 }}>{[0,1,2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: i < hl ? HCOL[i] : "rgba(255,255,255,.1)" }} />)}</div>
-                  <span onTouchEnd={e => { e.preventDefault(); e.stopPropagation(); setSheetH(s => s === null ? 200 : null); }} onClick={e => { e.stopPropagation(); setSheetH(s => s === null ? 200 : null); }} style={{ fontSize: 11, color: "#4b5563", marginLeft: 2, padding: "4px", cursor: "pointer" }}>{SHEET_OPEN ? "▾" : "▴"}</span>
-                </button>
-                <div style={{ flex: 1 }} />
-                <button onTouchEnd={(e) => { e.preventDefault(); check(); }} onClick={check}
-                  style={{ height: 36, padding: "0 20px", borderRadius: 10, background: isCorrect ? "linear-gradient(135deg,#16a34a,#22c55e)" : "linear-gradient(135deg,#5b21b6,#7c3aed)", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", outline: "none", boxShadow: isCorrect ? "0 2px 12px rgba(34,197,94,.25)" : "0 2px 12px rgba(124,58,237,.22)", display: "flex", alignItems: "center", gap: 7 }}>
-                  {isCorrect ? "✓" : "▶"} CHECK
-                </button>
-              </div>
-            )}
+          {showTokens ? (
+            <div style={{ height: 48, background: "#0d0d14", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 8px", gap: 5, overflowX: "auto", scrollbarWidth: "none", flexShrink: 0 }}>
+              <button onTouchEnd={(e) => { e.preventDefault(); requestHint(); }} onClick={requestHint} disabled={solShown}
+                style={{ height: 34, padding: "0 8px", borderRadius: 8, flexShrink: 0, background: hl > 0 ? "rgba(249,115,22,.15)" : "#16162a", border: `1px solid ${hl > 0 ? "rgba(249,115,22,.4)" : "#252540"}`, color: solShown ? "#374151" : hl > 0 ? "#f97316" : "#6b7280", cursor: solShown ? "default" : "pointer", display: "flex", alignItems: "center", gap: 5, outline: "none" }}>
+                <span style={{ fontSize: 14 }}>💡</span>
+                <div style={{ display: "flex", gap: 3 }}>{[0,1,2].map(i => <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: i < hl ? HCOL[i] : "#252540" }} />)}</div>
+                <span onTouchEnd={e => { e.preventDefault(); e.stopPropagation(); setSheetH(s => s === null ? 200 : null); }} onClick={e => { e.stopPropagation(); setSheetH(s => s === null ? 200 : null); }} style={{ fontSize: 10, color: "#4b5563", marginLeft: 2, padding: "4px", cursor: "pointer", lineHeight: 1 }}>{SHEET_OPEN ? "▾" : "▴"}</span>
+              </button>
+              <div style={{ width: 1, height: 22, background: "#1e1e2e", flexShrink: 0 }} />
+              <button onTouchEnd={(e) => { e.preventDefault(); check(); }} onClick={check}
+                style={{ width: 34, height: 34, borderRadius: 8, flexShrink: 0, background: isCorrect ? "rgba(34,197,94,.2)" : "#16162a", border: `1.5px solid ${isCorrect ? "#22c55e" : "#252540"}`, color: isCorrect ? "#4ade80" : "#6b7280", cursor: "pointer", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", outline: "none" }}>
+                {isCorrect ? "✓" : "▶"}
+              </button>
+              <div style={{ width: 1, height: 22, background: "#1e1e2e", flexShrink: 0 }} />
+              {smartToks.map((s, i) => (
+                <button key={i} onTouchEnd={(e) => { e.preventDefault(); insert(s); }} onClick={() => insert(s)}
+                  style={{ padding: "5px 10px", height: 34, flexShrink: 0, background: "#16162a", border: "1px solid #252540", borderRadius: 7, color: "#c4b5fd", fontFamily: "monospace", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", outline: "none" }}>{s}</button>
+              ))}
+            </div>
+          ) : (
+            <div style={{ height: 44, background: "#0d0d14", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 16px", flexShrink: 0 }}>
+              <button onTouchEnd={(e) => { e.preventDefault(); requestHint(); }} onClick={requestHint} disabled={solShown}
+                style={{ height: 36, padding: "0 14px", borderRadius: 10, background: hl > 0 ? "rgba(249,115,22,.12)" : "rgba(255,255,255,.04)", border: `1.5px solid ${hl > 0 ? "rgba(249,115,22,.35)" : "rgba(255,255,255,.08)"}`, color: solShown ? "#374151" : hl > 0 ? "#f97316" : "#6b7280", cursor: solShown ? "default" : "pointer", display: "flex", alignItems: "center", gap: 7, fontSize: 12, fontFamily: "monospace", fontWeight: 700, outline: "none" }}>
+                <span style={{ fontSize: 15 }}>💡</span>
+                <div style={{ display: "flex", gap: 3 }}>{[0,1,2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: i < hl ? HCOL[i] : "rgba(255,255,255,.1)" }} />)}</div>
+                <span onTouchEnd={e => { e.preventDefault(); e.stopPropagation(); setSheetH(s => s === null ? 200 : null); }} onClick={e => { e.stopPropagation(); setSheetH(s => s === null ? 200 : null); }} style={{ fontSize: 11, color: "#4b5563", marginLeft: 2, padding: "4px", cursor: "pointer" }}>{SHEET_OPEN ? "▾" : "▴"}</span>
+              </button>
+              <div style={{ flex: 1 }} />
+              <button onTouchEnd={(e) => { e.preventDefault(); check(); }} onClick={check}
+                style={{ height: 36, padding: "0 20px", borderRadius: 10, background: isCorrect ? "linear-gradient(135deg,#16a34a,#22c55e)" : "linear-gradient(135deg,#5b21b6,#7c3aed)", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", outline: "none", boxShadow: isCorrect ? "0 2px 12px rgba(34,197,94,.25)" : "0 2px 12px rgba(124,58,237,.22)", display: "flex", alignItems: "center", gap: 7 }}>
+                {isCorrect ? "✓" : "▶"} CHECK
+              </button>
+            </div>
+          )}
 
-            {SHEET_OPEN && (
-              <div style={{ height: sheetH!, background: "#111118", borderTop: "1px solid #2a2a42", display: "flex", flexDirection: "column", overflow: "hidden", borderRadius: "12px 12px 0 0", boxShadow: "0 -6px 28px rgba(0,0,0,.5)" }}>
-                <div onPointerDown={onSheetDragStart} onPointerMove={onSheetDragMove} onPointerUp={onSheetDragEnd} onPointerCancel={onSheetDragEnd}
-                  onTouchStart={onSheetDragStart} onTouchMove={onSheetDragMove} onTouchEnd={onSheetDragEnd}
-                  style={{ flexShrink: 0, height: 20, cursor: "ns-resize", display: "flex", alignItems: "center", justifyContent: "center", userSelect: "none", touchAction: "none" }}>
-                  <div style={{ width: 32, height: 4, borderRadius: 2, background: "#2a2a42" }} />
-                </div>
-                <div style={{ flex: 1, overflowY: "auto", padding: "0 12px 14px", display: "flex", flexDirection: "column", gap: 8, scrollbarWidth: "none" }}>
-                  {hl === 0 && !solShown
-                    ? <div style={{ textAlign: "center", padding: "10px 0", fontSize: 12, color: "#4b5563" }}>Drücke 💡 für einen Hinweis</div>
-                    : [ex.hints[0], ex.hints[1], ex.hints[2]].slice(0, hl).map((h, i) => (
-                        <div key={i} style={{ padding: "9px 12px", borderRadius: 10, background: "#0d0d14", border: `1px solid ${HCOL[i]}22`, borderLeft: `3px solid ${HCOL[i]}` }}>
-                          <div style={{ fontSize: 10, fontFamily: "monospace", color: HCOL[i], marginBottom: 4, letterSpacing: ".06em" }}>HINT {i + 1}</div>
-                          <div style={{ fontFamily: "monospace", fontSize: 13, color: "#d1d5db", lineHeight: 1.6 }}>{h}</div>
-                        </div>
-                      ))
-                  }
-                  {solShown && (
-                    <div style={{ padding: "9px 12px", borderRadius: 10, background: "rgba(239,68,68,.08)", border: "1px solid rgba(239,68,68,.25)", borderLeft: "3px solid #ef4444" }}>
-                      <div style={{ fontSize: 10, fontFamily: "monospace", color: "#ef4444", marginBottom: 4, letterSpacing: ".06em" }}>LÖSUNG</div>
-                      <div style={{ fontFamily: "monospace", fontSize: 13, color: "#4ade80", lineHeight: 1.6 }}>{ex.solution}</div>
-                    </div>
-                  )}
-                </div>
+          {SHEET_OPEN && (
+            <div style={{ height: sheetH!, background: "#111118", borderTop: "1px solid #2a2a42", display: "flex", flexDirection: "column", overflow: "hidden", borderRadius: "12px 12px 0 0", boxShadow: "0 -6px 28px rgba(0,0,0,.5)" }}>
+              <div onPointerDown={onSheetDragStart} onPointerMove={onSheetDragMove} onPointerUp={onSheetDragEnd} onPointerCancel={onSheetDragEnd}
+                onTouchStart={onSheetDragStart} onTouchMove={onSheetDragMove} onTouchEnd={onSheetDragEnd}
+                style={{ flexShrink: 0, height: 20, cursor: "ns-resize", display: "flex", alignItems: "center", justifyContent: "center", userSelect: "none", touchAction: "none" }}>
+                <div style={{ width: 32, height: 4, borderRadius: 2, background: "#2a2a42" }} />
               </div>
-            )}
-          </div>
+              <div style={{ flex: 1, overflowY: "auto", padding: "0 12px 14px", display: "flex", flexDirection: "column", gap: 8, scrollbarWidth: "none" }}>
+                {hl === 0 && !solShown
+                  ? <div style={{ textAlign: "center", padding: "10px 0", fontSize: 12, color: "#4b5563" }}>Drücke 💡 für einen Hinweis</div>
+                  : [ex.hints[0], ex.hints[1], ex.hints[2]].slice(0, hl).map((h, i) => (
+                      <div key={i} style={{ padding: "9px 12px", borderRadius: 10, background: "#0d0d14", border: `1px solid ${HCOL[i]}22`, borderLeft: `3px solid ${HCOL[i]}` }}>
+                        <div style={{ fontSize: 10, fontFamily: "monospace", color: HCOL[i], marginBottom: 4, letterSpacing: ".06em" }}>HINT {i + 1}</div>
+                        <div style={{ fontFamily: "monospace", fontSize: 13, color: "#d1d5db", lineHeight: 1.6 }}>{h}</div>
+                      </div>
+                    ))
+                }
+                {solShown && (
+                  <div style={{ padding: "9px 12px", borderRadius: 10, background: "rgba(239,68,68,.08)", border: "1px solid rgba(239,68,68,.25)", borderLeft: "3px solid #ef4444" }}>
+                    <div style={{ fontSize: 10, fontFamily: "monospace", color: "#ef4444", marginBottom: 4, letterSpacing: ".06em" }}>LÖSUNG</div>
+                    <div style={{ fontFamily: "monospace", fontSize: 13, color: "#4ade80", lineHeight: 1.6 }}>{ex.solution}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </>
     );
@@ -575,6 +565,9 @@ const STYLES = `
   body{background:#060609;overscroll-behavior:none;-webkit-overflow-scrolling:touch;}
   textarea{-webkit-user-select:text!important;user-select:text!important;font-size:16px!important;-webkit-text-size-adjust:100%;}
   input,textarea,button{-webkit-appearance:none;-webkit-tap-highlight-color:transparent;}
-  html{position:fixed;width:100%;height:100%;}
-  body{position:fixed;width:100%;height:100%;overflow:hidden;}
+  
+  /* ★ ANDROID FIX: html NICHT mehr auf fixed! 
+     Das hat auf Android den Layout-Viewport zerstört und die Toolbar beim Scrollen hochgerissen. */
+  html{width:100%;height:100%;overflow:hidden;position:relative;}
+  body{width:100%;height:100%;overflow:hidden;margin:0;}
 `;
