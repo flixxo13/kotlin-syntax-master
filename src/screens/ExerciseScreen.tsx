@@ -118,8 +118,8 @@ function DebugOverlay() {
   return (
     <div style={{
       position: "fixed", top: 0, right: 0, zIndex: 9999,
-      width: visible ? 220 : 36, maxHeight: "50vh",
-      background: "rgba(0,0,0,.88)", border: "1px solid #333",
+      width: visible ? 240 : 36, maxHeight: "50vh",
+      background: "rgba(0,0,0,.92)", border: "1px solid #333",
       borderRadius: "0 0 0 8px", overflow: "hidden",
       fontSize: 9, fontFamily: "monospace",
     }}>
@@ -134,7 +134,7 @@ function DebugOverlay() {
             ? <div style={{ color: "#333" }}>– warte auf Events –</div>
             : lines.map((l, i) => (
                 <div key={i} style={{
-                  color: l.includes("BLUR") ? "#f87171" : l.includes("FOCUS") ? "#4ade80" : l.includes("KB") ? "#60a5fa" : "#9ca3af",
+                  color: l.includes("BLUR") ? "#f87171" : l.includes("FOCUS") ? "#4ade80" : l.includes("IGNORED") ? "#6b7280" : l.includes("OPEN ✓") ? "#22c55e" : l.includes("CLOSED ✓") ? "#f59e0b" : "#9ca3af",
                   borderBottom: "1px solid #111", padding: "1px 0", wordBreak: "break-all",
                 }}>{l}</div>
               ))
@@ -168,37 +168,87 @@ export function ExerciseScreen() {
   const sheetDragY = useRef<number | null>(null);
   const sheetDragH = useRef<number | null>(null);
 
-  // ── visualViewport ──────────────────────────────────────────────────────────
-  // FIX: Nur vv.height verwenden, NICHT vv.offsetTop!
-  // offsetTop ändert sich beim Scrollen (Chrome Adressleiste) → falscher kbH → Blur
+  // ── ★ NEU: ROBUSTE Keyboard-Erkennung mit Zustandsmaschine ──────────────────
   useEffect(() => {
     const vv = window.visualViewport;
-    dbg(`INIT: VV=${!!vv} innerH=${window.innerHeight}`);
-    if (!vv) return;
+    if (!vv) { dbg("NO VISUAL VIEWPORT"); return; }
 
-    let rafId: number;
-    const upd = () => {
-      cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        // ✅ KORREKTUR: offsetTop WEGLASSEN – nur height zählt für Tastaturhöhe
-        const newH = Math.max(0, window.innerHeight - vv.height);
-        dbg(`KB vvH=${Math.round(vv.height)} off=${Math.round(vv.offsetTop)} → kbH=${Math.round(newH)}`);
-        setKbH(prev => {
-          if (Math.abs(prev - newH) > 50) {
-            dbg(`KB STATE ${Math.round(prev)}→${Math.round(newH)}`);
-            return newH;
+    // Fixe Basis-Höhe: Wird NUR EINMAL beim Mount bestimmt
+    const BASE_H = window.innerHeight;
+
+    type KbState = "closed" | "opening" | "open" | "closing";
+    let kbState: KbState = "closed";
+    let stableKbH = 0;
+    let stateTimer: number;
+    let lastVvH = BASE_H;
+
+    const onResize = () => {
+      const curVvH = vv.height;
+      const rawKbH = Math.max(0, BASE_H - curVvH);
+
+      // Kleine Schwankungen (< 15px) komplett ignorieren
+      if (Math.abs(curVvH - lastVvH) < 15) return;
+      lastVvH = curVvH;
+
+      switch (kbState) {
+        case "closed":
+          if (rawKbH > 100) {
+            kbState = "opening";
+            clearTimeout(stateTimer);
+            stateTimer = window.setTimeout(() => {
+              if (kbState === "opening") {
+                kbState = "open";
+                stableKbH = rawKbH;
+                setKbH(stableKbH);
+                dbg(`KB OPEN ✓ → ${Math.round(stableKbH)}px`);
+              }
+            }, 150);
+            dbg(`KB detecting open... rawKbH=${Math.round(rawKbH)}`);
           }
-          return prev;
-        });
-      });
+          break;
+
+        case "opening":
+          // Warte auf Stabilisierung
+          break;
+
+        case "open":
+          if (rawKbH < 50) {
+            kbState = "closing";
+            clearTimeout(stateTimer);
+            stateTimer = window.setTimeout(() => {
+              if (kbState === "closing") {
+                kbState = "closed";
+                stableKbH = 0;
+                setKbH(0);
+                dbg(`KB CLOSED ✓`);
+              }
+            }, 100);
+            dbg(`KB detecting close...`);
+          } else if (Math.abs(rawKbH - stableKbH) < 150) {
+            // ★ KEY FIX: Schwankungen während offen → IGNORIEREN
+            dbg(`KB SWING IGNORED ✓ (diff=${Math.abs(Math.round(rawKbH - stableKbH))}px)`);
+          } else {
+            clearTimeout(stateTimer);
+            stateTimer = window.setTimeout(() => {
+              stableKbH = rawKbH;
+              setKbH(stableKbH);
+              dbg(`KB MAJOR ADJUST → ${Math.round(stableKbH)}px`);
+            }, 300);
+          }
+          break;
+
+        case "closing":
+          // Warte auf Stabilisierung
+          break;
+      }
     };
 
-    vv.addEventListener("resize", upd);
-    // ✅ KEIN scroll-listener mehr – scroll ändert offsetTop, nicht height
-    upd();
+    vv.addEventListener("resize", onResize);
+    dbg(`VV INIT: baseH=${BASE_H}px (fixiert)`);
+
     return () => {
-      vv.removeEventListener("resize", upd);
-      cancelAnimationFrame(rafId);
+      vv.removeEventListener("resize", onResize);
+      clearTimeout(stateTimer);
     };
   }, []);
 
@@ -307,7 +357,8 @@ export function ExerciseScreen() {
           height: "100dvh", maxWidth: 430, margin: "0 auto",
           background: "#060609", color: "#f1f0fb",
           fontFamily: "'Inter',system-ui,sans-serif", overflow: "hidden",
-          paddingBottom: TOKEN_H + (SHEET_OPEN ? (sheetH || 0) : 0),
+          paddingBottom: kbH + TOKEN_H + (SHEET_OPEN ? (sheetH || 0) : 0),
+          transition: "padding-bottom 0.2s ease-out",
         }}>
           {/* Header */}
           <div style={{ height: 46, flexShrink: 0, background: "#0d0d14", borderBottom: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 10px", gap: 6 }}>
@@ -323,14 +374,14 @@ export function ExerciseScreen() {
           {/* Live Status Bar */}
           <div style={{ height: 20, flexShrink: 0, background: "#080810", display: "flex", alignItems: "center", padding: "0 10px", gap: 8, borderBottom: "1px solid #1a1a28" }}>
             <span style={{ fontSize: 9, fontFamily: "monospace", color: kbOpen ? "#4ade80" : "#6b7280" }}>
-              KB:{Math.round(kbH)}px {kbOpen ? "OPEN✓" : "CLOSED"}
+              KB:{kbOpen ? "OPEN" : "CLOSED"} {kbH}px
             </span>
             <span style={{ fontSize: 9, fontFamily: "monospace", color: "#4b5563" }}>
-              | win:{window.innerHeight} vv:{Math.round(window.visualViewport?.height ?? 0)}
+              | base:{typeof window !== "undefined" ? window.innerHeight : "?"} vv:{Math.round(typeof window !== "undefined" && window.visualViewport?.height ? window.visualViewport.height : 0)}
             </span>
           </div>
 
-          {/* Chips */}
+          {/* Chips nur wenn Tastatur ZU */}
           {showChips && !kbOpen && (
             <div style={{ minHeight: 32, flexShrink: 0, background: "#0a0a10", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, padding: "4px 12px" }}>
               {chips.length === 0
@@ -363,7 +414,7 @@ export function ExerciseScreen() {
               value={code}
               onChange={e => setCode(e.target.value)}
               onFocus={() => dbg("FOCUS ← textarea")}
-              onBlur={(e) => dbg(`BLUR → relatedTarget:${(e.relatedTarget as HTMLElement)?.tagName ?? "null"} kbH:${Math.round(kbH)}`)}
+              onBlur={(e) => dbg(`BLUR → relatedTarget:${(e.relatedTarget as HTMLElement)?.tagName ?? "null"}`)}
               autoFocus
               inputMode="text"
               enterKeyHint="done"
@@ -389,14 +440,28 @@ export function ExerciseScreen() {
           </div>
         </div>
 
-        {/* Fixed Accessory – sitzt direkt auf der Tastatur */}
-        <div style={{ position: "fixed", bottom: kbH, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 430, zIndex: 200, display: "flex", flexDirection: "column" }}>
+        {/* ★ FIX: Fixed Accessory mit CSS Transition */}
+        <div style={{
+          position: "fixed",
+          bottom: kbH,
+          left: "50%",
+          transform: "translateX(-50%)",
+          width: "100%",
+          maxWidth: 430,
+          zIndex: 200,
+          display: "flex",
+          flexDirection: "column",
+          transition: "bottom 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+          willChange: "bottom",
+        }}>
+          {/* Chips über Tastatur */}
           {showChips && kbOpen && (
             <div style={{ minHeight: 32, flexShrink: 0, background: "#0a0a10", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, padding: "4px 12px" }}>
               {chips.map((c, i) => { const st = CHIP[c.s] || CHIP.unknown; return <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "2px 7px", borderRadius: 6, fontSize: 12, fontFamily: "monospace", fontWeight: 600, background: st.bg, border: `1px solid ${st.border}`, color: st.color }}>{c.tok}{st.mark && <span style={{ fontSize: 9, opacity: .8 }}>{st.mark}</span>}</span>; })}
             </div>
           )}
 
+          {/* Token-Leiste Modus 1: Kompakt mit Token-Buttons */}
           {showTokens ? (
             <div style={{ height: 48, background: "#0d0d14", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 8px", gap: 5, overflowX: "auto", scrollbarWidth: "none", flexShrink: 0 }}>
               <button onTouchEnd={(e) => { e.preventDefault(); requestHint(); }} onClick={requestHint} disabled={solShown}
@@ -417,6 +482,7 @@ export function ExerciseScreen() {
               ))}
             </div>
           ) : (
+            /* Token-Leiste Modus 2: Breit mit Check-Button */
             <div style={{ height: 44, background: "#0d0d14", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 16px", flexShrink: 0 }}>
               <button onTouchEnd={(e) => { e.preventDefault(); requestHint(); }} onClick={requestHint} disabled={solShown}
                 style={{ height: 36, padding: "0 14px", borderRadius: 10, background: hl > 0 ? "rgba(249,115,22,.12)" : "rgba(255,255,255,.04)", border: `1.5px solid ${hl > 0 ? "rgba(249,115,22,.35)" : "rgba(255,255,255,.08)"}`, color: solShown ? "#374151" : hl > 0 ? "#f97316" : "#6b7280", cursor: solShown ? "default" : "pointer", display: "flex", alignItems: "center", gap: 7, fontSize: 12, fontFamily: "monospace", fontWeight: 700, outline: "none" }}>
@@ -432,6 +498,7 @@ export function ExerciseScreen() {
             </div>
           )}
 
+          {/* Hint-Sheet (aufklappbar) */}
           {SHEET_OPEN && (
             <div style={{ height: sheetH!, background: "#111118", borderTop: "1px solid #2a2a42", display: "flex", flexDirection: "column", overflow: "hidden", borderRadius: "12px 12px 0 0", boxShadow: "0 -6px 28px rgba(0,0,0,.5)" }}>
               <div onPointerDown={onSheetDragStart} onPointerMove={onSheetDragMove} onPointerUp={onSheetDragEnd} onPointerCancel={onSheetDragEnd}
@@ -471,6 +538,7 @@ export function ExerciseScreen() {
       <style>{STYLES}</style>
       <DebugOverlay />
       <div style={{ display: "flex", flexDirection: "column", height: "100dvh", maxWidth: 430, margin: "0 auto", background: "#060609", color: "#f1f0fb", fontFamily: "'Inter',system-ui,sans-serif", overflow: "hidden", paddingBottom: 44 }}>
+        {/* Top-Bar */}
         <div style={{ height: 52, flexShrink: 0, background: "#0d0d14", borderBottom: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 10px 0 14px", gap: 8 }}>
           <button style={smallBtn()}>←</button>
           <div style={{ flex: 1, textAlign: "center", lineHeight: 1.3 }}>
@@ -483,6 +551,7 @@ export function ExerciseScreen() {
           </div>
         </div>
 
+        {/* Aufgaben-Panel (aufklappbar) */}
         <div style={{ background: "#0d0d14", borderBottom: "1px solid #1e1e2e", flexShrink: 0 }}>
           <button onClick={() => setTaskOpen(p => !p)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 14px", background: "none", border: "none", cursor: "pointer", color: "#f1f0fb", outline: "none" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 7 }}><span>📋</span><span style={{ fontSize: 10, fontFamily: "monospace", color: "#6b7280", textTransform: "uppercase", letterSpacing: ".08em" }}>Aufgabe</span></div>
@@ -496,6 +565,7 @@ export function ExerciseScreen() {
           )}
         </div>
 
+        {/* Chips-Leiste */}
         <div style={{ minHeight: 32, flexShrink: 0, background: "#0a0a10", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, padding: "4px 12px" }}>
           {chips.length === 0
             ? <span style={{ fontSize: 10, fontFamily: "monospace", color: "#2a2a3e", letterSpacing: ".08em" }}>• Syntax-Elemente erscheinen hier…</span>
@@ -503,6 +573,7 @@ export function ExerciseScreen() {
           }
         </div>
 
+        {/* Editor-Vorschau (Read-Only, Klick → Fullscreen) */}
         <div style={{ flex: 1, minHeight: 0, position: "relative", background: "#0a0a10", cursor: "pointer" }} onClick={openFullscreenAndFocus}>
           <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 28, background: "#0d0d14", borderRight: "1px solid #1a1a28", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: PAD_T, fontSize: 11, fontFamily: "monospace", color: "#3a3a5a", userSelect: "none", pointerEvents: "none" }}>1</div>
           <textarea ref={taRef} value={code} onChange={e => setCode(e.target.value)} readOnly
@@ -510,11 +581,13 @@ export function ExerciseScreen() {
             placeholder="// Code hier…" />
         </div>
 
+        {/* Hinweis zum Starten */}
         <div style={{ textAlign: "center", padding: "5px 0", flexShrink: 0, background: "#0a0a10", borderBottom: "1px solid #1e1e2e" }}>
           <span style={{ fontSize: 10, color: "#2a2a3e", fontFamily: "monospace" }}>Tippe auf den Editor zum Starten →</span>
         </div>
       </div>
 
+      {/* Fixierter Bottom-Bar für Normal View */}
       <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 430, zIndex: 200 }}>
         <div style={{ height: 44, background: "#0d0d14", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 16px", flexShrink: 0 }}>
           <button onClick={requestHint} disabled={solShown}
