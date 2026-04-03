@@ -108,7 +108,7 @@ function dbg(msg: string) {
 
 function DebugOverlay() {
   const [lines, setLines] = useState<string[]>([]);
-  const [visible, setVisible] = useState(false); // Standardmäßig aus für Endnutzer
+  const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     _logSetter = setLines;
@@ -145,7 +145,6 @@ function DebugOverlay() {
   );
 }
 
-// Didaktische Highlight-Funktion für Aufgabenstellungen
 function HighlightTask({ text }: { text: string }) {
   const parts = text.split(/(".*?"|read-only)/g);
   return <>{parts.map((part, i) => 
@@ -174,12 +173,15 @@ export function ExerciseScreen() {
   
   const [kbOpen, setKbOpen]         = useState(false);
   const [kbPadding, setKbPadding]   = useState(0);
+  
+  // ★ NEU: Verhindert versehentliches Antippen beim horizontalen Scrollen
+  const [isScrollingTokens, setIsScrollingTokens] = useState(false);
 
   const taRef = useRef<HTMLTextAreaElement>(null);
   const sheetDragY = useRef<number | null>(null);
   const sheetDragH = useRef<number | null>(null);
 
-  // ── KEYBOARD LOCK-ON-OPEN (ROBUST) ─────────────────────────────────────────
+  // ── KEYBOARD LOCK-ON-OPEN ───────────────────────────────────────────────────
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) { dbg("NO VISUAL VIEWPORT"); return; }
@@ -222,8 +224,6 @@ export function ExerciseScreen() {
 
     vv.addEventListener("resize", onVvResize);
     window.addEventListener("resize", onWinResize);
-    dbg(`VV INIT: baseH=${baseHeight}px`);
-
     return () => {
       vv.removeEventListener("resize", onVvResize);
       window.removeEventListener("resize", onWinResize);
@@ -238,13 +238,8 @@ export function ExerciseScreen() {
     setTaskOpen(true); setSheetH(null); setFullscreen(false);
   }, [ex]);
 
-  useEffect(() => {
-    setChips(code.trim() ? analyze(code, ex.solution) : []);
-  }, [code, ex.solution]);
-
-  useEffect(() => {
-    if (solShown) setCode(ex.solution);
-  }, [solShown, ex.solution]);
+  useEffect(() => { setChips(code.trim() ? analyze(code, ex.solution) : []); }, [code, ex.solution]);
+  useEffect(() => { if (solShown) setCode(ex.solution); }, [solShown, ex.solution]);
 
   const normalize = (s: string) => s.replace(/\s+/g, " ").trim();
   const isCorrect = normalize(code) === normalize(ex.solution);
@@ -254,25 +249,14 @@ export function ExerciseScreen() {
   const allUsed = hl >= 3;
 
   const check = useCallback(() => {
-    if (isCorrect) { 
-      setFb("correct"); 
-      setSolved(true); 
-      setTimeout(() => setFb(null), 2000); 
-    } else { 
-      setFb("incorrect"); 
-      setTimeout(() => setFb(null), 600); 
-    }
+    if (isCorrect) { setFb("correct"); setSolved(true); setTimeout(() => setFb(null), 2000); }
+    else { setFb("incorrect"); setTimeout(() => setFb(null), 600); }
   }, [isCorrect]);
 
-  // ★ KORREKTUR: Hints füllen NICHT den Editor, sie steuern nur den Ghost-Text!
   const requestHint = useCallback(() => {
     if (solShown) return;
-    if (!allUsed) {
-      setHintLevel(h => typeof h === "number" ? h + 1 : 3);
-    } else {
-      setSolShown(true);
-      setSheetH(180);
-    }
+    if (!allUsed) setHintLevel(h => typeof h === "number" ? h + 1 : 3);
+    else { setSolShown(true); setSheetH(180); }
   }, [solShown, allUsed]);
 
   const insert = useCallback((raw: string) => {
@@ -280,55 +264,26 @@ export function ExerciseScreen() {
     const ta = taRef.current;
     if (ta) {
       const s = ta.selectionStart, e = ta.selectionEnd;
-      const newCode = code.slice(0, s) + text + code.slice(e);
-      setCode(newCode);
-      requestAnimationFrame(() => {
-        ta.selectionStart = ta.selectionEnd = s + text.length;
-        ta.focus({ preventScroll: true });
-      });
-    } else {
-      setCode(p => p + text);
-    }
+      setCode(code.slice(0, s) + text + code.slice(e));
+      requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = s + text.length; ta.focus({ preventScroll: true }); });
+    } else setCode(p => p + text);
   }, [code]);
 
   const openFullscreenAndFocus = useCallback(() => {
     setFullscreen(true);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        taRef.current?.focus({ preventScroll: true });
-      });
-    });
+    requestAnimationFrame(() => { requestAnimationFrame(() => { taRef.current?.focus({ preventScroll: true }); }); });
   }, []);
 
-  const onSheetDragStart = (e: any) => {
-    sheetDragY.current = "touches" in e ? e.touches[0].clientY : e.clientY;
-    sheetDragH.current = sheetH || 200;
-  };
-  const onSheetDragMove = (e: any) => {
-    if (sheetDragY.current === null) return;
-    const y = "touches" in e ? e.touches[0].clientY : e.clientY;
-    setSheetH(Math.max(60, Math.min(420, (sheetDragH.current || 200) + (sheetDragY.current - y))));
-  };
-  const onSheetDragEnd = (e: any) => {
-    const y = "changedTouches" in e ? e.changedTouches[0].clientY : e.clientY;
-    if ((sheetDragY.current || 0) - y < -60) setSheetH(null);
-    sheetDragY.current = null; sheetDragH.current = null;
-  };
+  const onSheetDragStart = (e: any) => { sheetDragY.current = "touches" in e ? e.touches[0].clientY : e.clientY; sheetDragH.current = sheetH || 200; };
+  const onSheetDragMove = (e: any) => { if (sheetDragY.current === null) return; const y = "touches" in e ? e.touches[0].clientY : e.clientY; setSheetH(Math.max(60, Math.min(420, (sheetDragH.current || 200) + (sheetDragY.current - y)))); };
+  const onSheetDragEnd = (e: any) => { const y = "changedTouches" in e ? e.changedTouches[0].clientY : e.clientY; if ((sheetDragY.current || 0) - y < -60) setSheetH(null); sheetDragY.current = null; sheetDragH.current = null; };
 
   const codeLines = code ? code.split("\n").length : 0;
   const initLines = ex.initialCode ? ex.initialCode.split("\n").length : 0;
   const ghostTop = PAD_T + Math.max(codeLines, initLines) * LINE_H + Math.round(LINE_H * 0.5);
-  
-  // ★ Ghost-Text Logik wiederhergestellt
   const currentHintText = hl === 1 ? ex.hints[0] : hl === 2 ? ex.hints[1] : hl === 3 ? ex.hints[2] : null;
   const showGhost = !!currentHintText && !solShown;
-  
-  const smartToks = getSmartTokens(code);
-  const solTokens = tokenize(ex.solution);
-  const filteredToks = smartToks
-    .filter(t => solTokens.includes(t) || ST.has(t) || t === ex.solution.split(" ")[1])
-    .slice(0, 8);
-
+  const smartToks = getSmartTokens(code).slice(0, 8);
   const TOKEN_H = showTokens ? 48 : 44;
   const SHEET_OPEN = sheetH !== null;
 
@@ -340,6 +295,9 @@ export function ExerciseScreen() {
       <>
         <style>{STYLES}</style>
         <DebugOverlay />
+        
+        {/* ★ ULTIMATIVER ANDROID FIX: Flex-Layout statt position:fixed!
+            Verhindert den schwarzen Rand komplett, da nichts aus dem Viewport fällt. */}
         <div style={{
           display: "flex", flexDirection: "column",
           height: "100dvh", maxWidth: 430, margin: "0 auto",
@@ -347,21 +305,21 @@ export function ExerciseScreen() {
           fontFamily: "'Inter',system-ui,sans-serif", overflow: "hidden",
           paddingBottom: kbPadding + TOKEN_H + (SHEET_OPEN ? (sheetH || 0) : 0),
         }}>
-          {/* CLEAN HEADER */}
+          
+          {/* Header mit beiden Toggles */}
           <div style={{ height: 46, flexShrink: 0, background: "#0d0d14", borderBottom: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 10px", gap: 6 }}>
             <button onClick={() => { setFullscreen(false); taRef.current?.blur(); }} style={smallBtn()}>←</button>
-            
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
               <div style={{ width: "80%", height: 2, background: "#1e1e2e", borderRadius: 2, overflow: "hidden" }}>
                 <div style={{ width: `${((exIdx + 1) / EXERCISES.length) * 100}%`, height: "100%", background: "#7c3aed", transition: "width 0.3s" }} />
               </div>
               <div style={{ fontSize: 11, fontWeight: 600, color: solved ? "#4ade80" : "#f1f0fb" }}>{ex.conceptId}{solved && " ✓"}</div>
             </div>
-
+            <button onClick={() => setShowChips(p => !p)} style={toggleBtn(showChips)}>≡</button>
             <button onClick={() => setShowTokens(p => !p)} style={toggleBtn(showTokens)}>⌨</button>
           </div>
 
-          {/* Chips (nur wenn KB zu) */}
+          {/* Feedback Bar (Chips) */}
           {showChips && !kbOpen && (
             <div style={{ minHeight: 32, flexShrink: 0, background: "#0a0a10", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, padding: "4px 12px" }}>
               {chips.length === 0
@@ -381,22 +339,15 @@ export function ExerciseScreen() {
             </div>
           )}
 
-          {/* EDITOR MIT SHAKE-ANIMATION */}
+          {/* Editor */}
           <div style={{ 
             flex: 1, minHeight: 0, position: "relative", background: "#0a0a10",
             animation: fb === "incorrect" ? "shake 0.4s cubic-bezier(.36,.07,.19,.97) both" : "none"
           }}>
             <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 28, background: "#0d0d14", borderRight: "1px solid #1a1a28", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: PAD_T, fontSize: 11, fontFamily: "monospace", color: "#3a3a5a", userSelect: "none", pointerEvents: "none" }}>1</div>
             
-            {/* ★ WIEDERHERGESTELLT: Ghost-Text im Hintergrund */}
             {showGhost && (
-              <div style={{ 
-                position: "absolute", left: 28, right: 0, top: ghostTop, 
-                padding: "0 12px", pointerEvents: "none", 
-                fontFamily: "'JetBrains Mono',monospace", fontSize: 14, 
-                lineHeight: `${LINE_H}px`, color: "rgba(120,80,220,.25)", 
-                whiteSpace: "pre-wrap", zIndex: 5 
-              }}>
+              <div style={{ position: "absolute", left: 28, right: 0, top: ghostTop, padding: "0 12px", pointerEvents: "none", fontFamily: "'JetBrains Mono',monospace", fontSize: 14, lineHeight: `${LINE_H}px`, color: "rgba(120,80,220,.25)", whiteSpace: "pre-wrap", zIndex: 5 }}>
                 {currentHintText}
               </div>
             )}
@@ -430,89 +381,105 @@ export function ExerciseScreen() {
               </div>
             )}
           </div>
-        </div>
 
-        {/* FIXED TOOLBAR (ULTIMATIVER ANDROID FIX) */}
-        <div style={{
-          position: "fixed", bottom: kbPadding, left: "50%",
-          transform: "translateX(-50%)", width: "100%", maxWidth: 430,
-          zIndex: 200, display: "flex", flexDirection: "column",
-        }}>
-          {showChips && kbOpen && (
-            <div style={{ minHeight: 32, flexShrink: 0, background: "#0a0a10", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, padding: "4px 12px" }}>
-              {chips.map((c, i) => { const st = CHIP[c.s] || CHIP.unknown; return <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "2px 7px", borderRadius: 6, fontSize: 12, fontFamily: "monospace", fontWeight: 600, background: st.bg, border: `1px solid ${st.border}`, color: st.color }}>{c.tok}{st.mark && <span style={{ fontSize: 9, opacity: .8 }}>{st.mark}</span>}</span>; })}
-            </div>
-          )}
-
-          {showTokens ? (
-            <div style={{ height: 48, background: "#0d0d14", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 8px", gap: 5, overflowX: "auto", scrollbarWidth: "none", flexShrink: 0 }}>
-              <button onTouchEnd={(e) => { e.preventDefault(); requestHint(); }} onClick={requestHint} disabled={solShown}
-                style={{ height: 34, padding: "0 8px", borderRadius: 8, flexShrink: 0, background: hl > 0 ? "rgba(249,115,22,.15)" : "#16162a", border: `1px solid ${hl > 0 ? "rgba(249,115,22,.4)" : "#252540"}`, color: solShown ? "#374151" : hl > 0 ? "#f97316" : "#6b7280", cursor: solShown ? "default" : "pointer", display: "flex", alignItems: "center", gap: 5, outline: "none" }}>
-                <span style={{ fontSize: 14 }}>💡</span>
-                <div style={{ display: "flex", gap: 3 }}>{[0,1,2].map(i => <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: i < hl ? HCOL[i] : "#252540" }} />)}</div>
-                <span onTouchEnd={e => { e.preventDefault(); e.stopPropagation(); setSheetH(s => s === null ? 200 : null); }} onClick={e => { e.stopPropagation(); setSheetH(s => s === null ? 200 : null); }} style={{ fontSize: 10, color: "#4b5563", marginLeft: 2, padding: "4px", cursor: "pointer", lineHeight: 1 }}>{SHEET_OPEN ? "▾" : "▴"}</span>
-              </button>
-              <div style={{ width: 1, height: 22, background: "#1e1e2e", flexShrink: 0 }} />
-              
-              <button onTouchEnd={(e) => { e.preventDefault(); check(); }} onClick={check}
-                style={{ width: 80, height: 34, borderRadius: 8, flexShrink: 0, background: isCorrect ? "rgba(34,197,94,.2)" : "#16162a", border: `1.5px solid ${isCorrect ? "#22c55e" : "#252540"}`, color: isCorrect ? "#4ade80" : "#6b7280", cursor: "pointer", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, outline: "none" }}>
-                {isCorrect ? "✓ OK" : "▶ CHECK"}
-              </button>
-
-              <div style={{ width: 1, height: 22, background: "#1e1e2e", flexShrink: 0 }} />
-              <span style={{ fontSize: 9, color: "#3a3a5a", fontFamily: "monospace", flexShrink: 0, textTransform: "uppercase" }}>Shortcuts</span>
-              
-              {filteredToks.map((s, i) => (
-                <button key={i} onTouchEnd={(e) => { e.preventDefault(); insert(s); }} onClick={() => insert(s)}
-                  style={{ padding: "5px 10px", height: 34, flexShrink: 0, background: "#16162a", border: "1px solid #252540", borderRadius: 7, color: "#c4b5fd", fontFamily: "monospace", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", outline: "none" }}>{s}</button>
-              ))}
-            </div>
-          ) : (
-            <div style={{ height: 44, background: "#0d0d14", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 16px", flexShrink: 0 }}>
-              <button onTouchEnd={(e) => { e.preventDefault(); requestHint(); }} onClick={requestHint} disabled={solShown}
-                style={{ height: 36, padding: "0 14px", borderRadius: 10, background: hl > 0 ? "rgba(249,115,22,.12)" : "rgba(255,255,255,.04)", border: `1.5px solid ${hl > 0 ? "rgba(249,115,22,.35)" : "rgba(255,255,255,.08)"}`, color: solShown ? "#374151" : hl > 0 ? "#f97316" : "#6b7280", cursor: solShown ? "default" : "pointer", display: "flex", alignItems: "center", gap: 7, fontSize: 12, fontFamily: "monospace", fontWeight: 700, outline: "none" }}>
-                <span style={{ fontSize: 15 }}>💡</span>
-                <div style={{ display: "flex", gap: 3 }}>{[0,1,2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: i < hl ? HCOL[i] : "rgba(255,255,255,.1)" }} />)}</div>
-              </button>
-              <div style={{ flex: 1 }} />
-              <button onTouchEnd={(e) => { e.preventDefault(); check(); }} onClick={check}
-                style={{ height: 36, padding: "0 20px", borderRadius: 10, background: isCorrect ? "linear-gradient(135deg,#16a34a,#22c55e)" : "linear-gradient(135deg,#5b21b6,#7c3aed)", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", outline: "none", boxShadow: isCorrect ? "0 2px 12px rgba(34,197,94,.25)" : "0 2px 12px rgba(124,58,237,.22)", display: "flex", alignItems: "center", gap: 7 }}>
-                {isCorrect ? "✓ OK" : "▶ CHECK CODE"}
-              </button>
-            </div>
-          )}
-
-          {SHEET_OPEN && (
-            <div style={{ height: sheetH!, background: "#111118", borderTop: "1px solid #2a2a42", display: "flex", flexDirection: "column", overflow: "hidden", borderRadius: "12px 12px 0 0", boxShadow: "0 -6px 28px rgba(0,0,0,.5)" }}>
-              <div onPointerDown={onSheetDragStart} onPointerMove={onSheetDragMove} onPointerUp={onSheetDragEnd} onPointerCancel={onSheetDragEnd}
-                onTouchStart={onSheetDragStart} onTouchMove={onSheetDragMove} onTouchEnd={onSheetDragEnd}
-                style={{ flexShrink: 0, height: 20, cursor: "ns-resize", display: "flex", alignItems: "center", justifyContent: "center", userSelect: "none", touchAction: "none" }}>
-                <div style={{ width: 32, height: 4, borderRadius: 2, background: "#2a2a42" }} />
+          {/* ★ TOOLBAR IM FLEX-FLOW (Kein position: fixed mehr!) */}
+          <div style={{ flexShrink: 0, display: "flex", flexDirection: "column" }}>
+            {showChips && kbOpen && (
+              <div style={{ minHeight: 32, background: "#0a0a10", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4, padding: "4px 12px" }}>
+                {chips.map((c, i) => { const st = CHIP[c.s] || CHIP.unknown; return <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 2, padding: "2px 7px", borderRadius: 6, fontSize: 12, fontFamily: "monospace", fontWeight: 600, background: st.bg, border: `1px solid ${st.border}`, color: st.color }}>{c.tok}{st.mark && <span style={{ fontSize: 9, opacity: .8 }}>{st.mark}</span>}</span>; })}
               </div>
-              <div style={{ flex: 1, overflowY: "auto", padding: "0 12px 14px", display: "flex", flexDirection: "column", gap: 8, scrollbarWidth: "none" }}>
-                {solShown && (
-                  <div style={{ padding: "9px 12px", borderRadius: 10, background: "rgba(239,68,68,.08)", border: "1px solid rgba(239,68,68,.25)", borderLeft: "3px solid #ef4444" }}>
-                    <div style={{ fontSize: 10, fontFamily: "monospace", color: "#ef4444", marginBottom: 4, letterSpacing: ".06em" }}>LÖSUNG</div>
-                    <div style={{ fontFamily: "monospace", fontSize: 13, color: "#4ade80", lineHeight: 1.6 }}>{ex.solution}</div>
-                  </div>
-                )}
+            )}
+
+            {showTokens ? (
+              // ★ SCROLL-SCHUTZ FÜR TOKENS
+              <div 
+                style={{ height: 48, background: "#0d0d14", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 8px", gap: 5, overflowX: "auto", scrollbarWidth: "none", flexShrink: 0 }}
+                onTouchStart={() => setIsScrollingTokens(false)}
+                onTouchMove={() => setIsScrollingTokens(true)}
+                onTouchEnd={() => setTimeout(() => setIsScrollingTokens(false), 50)}
+              >
+                <button onTouchEnd={(e) => { e.preventDefault(); requestHint(); }} onClick={requestHint} disabled={solShown}
+                  style={{ height: 34, padding: "0 8px", borderRadius: 8, flexShrink: 0, background: hl > 0 ? "rgba(249,115,22,.15)" : "#16162a", border: `1px solid ${hl > 0 ? "rgba(249,115,22,.4)" : "#252540"}`, color: solShown ? "#374151" : hl > 0 ? "#f97316" : "#6b7280", cursor: solShown ? "default" : "pointer", display: "flex", alignItems: "center", gap: 5, outline: "none" }}>
+                  <span style={{ fontSize: 14 }}>💡</span>
+                  <div style={{ display: "flex", gap: 3 }}>{[0,1,2].map(i => <div key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: i < hl ? HCOL[i] : "#252540" }} />)}</div>
+                  <span onTouchEnd={e => { e.preventDefault(); e.stopPropagation(); setSheetH(s => s === null ? 200 : null); }} onClick={e => { e.stopPropagation(); setSheetH(s => s === null ? 200 : null); }} style={{ fontSize: 10, color: "#4b5563", marginLeft: 2, padding: "4px", cursor: "pointer", lineHeight: 1 }}>{SHEET_OPEN ? "▾" : "▴"}</span>
+                </button>
+                <div style={{ width: 1, height: 22, background: "#1e1e2e", flexShrink: 0 }} />
+                
+                <button onTouchEnd={(e) => { e.preventDefault(); check(); }} onClick={check}
+                  style={{ width: 80, height: 34, borderRadius: 8, flexShrink: 0, background: isCorrect ? "rgba(34,197,94,.2)" : "#16162a", border: `1.5px solid ${isCorrect ? "#22c55e" : "#252540"}`, color: isCorrect ? "#4ade80" : "#6b7280", cursor: "pointer", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, outline: "none" }}>
+                  {isCorrect ? "✓ OK" : "▶ CHECK"}
+                </button>
+
+                <div style={{ width: 1, height: 22, background: "#1e1e2e", flexShrink: 0 }} />
+                
+                {smartToks.map((s, i) => (
+                  <button key={i} 
+                    onTouchEnd={(e) => { 
+                      e.preventDefault(); 
+                      if (isScrollingTokens) return; // ★ BLOCKIERT KLICKS BEIM WISCHEN
+                      insert(s); 
+                    }} 
+                    onClick={() => { if (isScrollingTokens) return; insert(s); }}
+                    style={{ padding: "5px 10px", height: 34, flexShrink: 0, background: "#16162a", border: "1px solid #252540", borderRadius: 7, color: "#c4b5fd", fontFamily: "monospace", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", outline: "none" }}>{s}</button>
+                ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <div style={{ height: 44, background: "#0d0d14", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 16px", flexShrink: 0 }}>
+                <button onTouchEnd={(e) => { e.preventDefault(); requestHint(); }} onClick={requestHint} disabled={solShown}
+                  style={{ height: 36, padding: "0 14px", borderRadius: 10, background: hl > 0 ? "rgba(249,115,22,.12)" : "rgba(255,255,255,.04)", border: `1.5px solid ${hl > 0 ? "rgba(249,115,22,.35)" : "rgba(255,255,255,.08)"}`, color: solShown ? "#374151" : hl > 0 ? "#f97316" : "#6b7280", cursor: solShown ? "default" : "pointer", display: "flex", alignItems: "center", gap: 7, fontSize: 12, fontFamily: "monospace", fontWeight: 700, outline: "none" }}>
+                  <span style={{ fontSize: 15 }}>💡</span>
+                  <div style={{ display: "flex", gap: 3 }}>{[0,1,2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: i < hl ? HCOL[i] : "rgba(255,255,255,.1)" }} />)}</div>
+                </button>
+                <div style={{ flex: 1 }} />
+                <button onTouchEnd={(e) => { e.preventDefault(); check(); }} onClick={check}
+                  style={{ height: 36, padding: "0 20px", borderRadius: 10, background: isCorrect ? "linear-gradient(135deg,#16a34a,#22c55e)" : "linear-gradient(135deg,#5b21b6,#7c3aed)", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", outline: "none", boxShadow: isCorrect ? "0 2px 12px rgba(34,197,94,.25)" : "0 2px 12px rgba(124,58,237,.22)", display: "flex", alignItems: "center", gap: 7 }}>
+                  {isCorrect ? "✓ OK" : "▶ CHECK CODE"}
+                </button>
+              </div>
+            )}
+
+            {/* ★ HINT SHEET KOMPLETT REPARIERT */}
+            {SHEET_OPEN && (
+              <div style={{ height: sheetH!, background: "#111118", borderTop: "1px solid #2a2a42", display: "flex", flexDirection: "column", overflow: "hidden", borderRadius: "12px 12px 0 0", boxShadow: "0 -6px 28px rgba(0,0,0,.5)" }}>
+                <div onPointerDown={onSheetDragStart} onPointerMove={onSheetDragMove} onPointerUp={onSheetDragEnd} onPointerCancel={onSheetDragEnd}
+                  onTouchStart={onSheetDragStart} onTouchMove={onSheetDragMove} onTouchEnd={onSheetDragEnd}
+                  style={{ flexShrink: 0, height: 20, cursor: "ns-resize", display: "flex", alignItems: "center", justifyContent: "center", userSelect: "none", touchAction: "none" }}>
+                  <div style={{ width: 32, height: 4, borderRadius: 2, background: "#2a2a42" }} />
+                </div>
+                <div style={{ flex: 1, overflowY: "auto", padding: "0 12px 14px", display: "flex", flexDirection: "column", gap: 8, scrollbarWidth: "none" }}>
+                  {hl === 0 && !solShown
+                    ? <div style={{ textAlign: "center", padding: "10px 0", fontSize: 12, color: "#4b5563" }}>Drücke 💡 für einen Hinweis</div>
+                    : ex.hints.slice(0, hl).map((h, i) => (
+                        <div key={i} style={{ padding: "9px 12px", borderRadius: 10, background: "#0d0d14", border: `1px solid ${HCOL[i]}22`, borderLeft: `3px solid ${HCOL[i]}` }}>
+                          <div style={{ fontSize: 10, fontFamily: "monospace", color: HCOL[i], marginBottom: 4, letterSpacing: ".06em" }}>HINT {i + 1}</div>
+                          <div style={{ fontFamily: "monospace", fontSize: 13, color: "#d1d5db", lineHeight: 1.6 }}>{h}</div>
+                        </div>
+                      ))
+                  }
+                  {solShown && (
+                    <div style={{ padding: "9px 12px", borderRadius: 10, background: "rgba(239,68,68,.08)", border: "1px solid rgba(239,68,68,.25)", borderLeft: "3px solid #ef4444" }}>
+                      <div style={{ fontSize: 10, fontFamily: "monospace", color: "#ef4444", marginBottom: 4, letterSpacing: ".06em" }}>LÖSUNG</div>
+                      <div style={{ fontFamily: "monospace", fontSize: 13, color: "#4ade80", lineHeight: 1.6 }}>{ex.solution}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </>
     );
   }
 
   // ══════════════════════════════════════════════════════════════════════
-  // NORMAL VIEW
+  // NORMAL VIEW (ONBOARDING)
   // ══════════════════════════════════════════════════════════════════════
   return (
     <>
       <style>{STYLES}</style>
       <DebugOverlay />
       <div style={{ display: "flex", flexDirection: "column", height: "100dvh", maxWidth: 430, margin: "0 auto", background: "#060609", color: "#f1f0fb", fontFamily: "'Inter',system-ui,sans-serif", overflow: "hidden", paddingBottom: 44 }}>
-        
         <div style={{ height: 52, flexShrink: 0, background: "#0d0d14", borderBottom: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 10px 0 14px", gap: 8 }}>
           <button style={smallBtn()}>←</button>
           <div style={{ flex: 1, textAlign: "center", lineHeight: 1.3 }}>
@@ -579,8 +546,23 @@ const STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap');
   *{box-sizing:border-box;margin:0;padding:0;}
   ::-webkit-scrollbar{display:none;}
-  body{background:#060609;overscroll-behavior:none;-webkit-overflow-scrolling:touch;}
-  textarea{-webkit-user-select:text!important;user-select:text!important;font-size:16px!important;-webkit-text-size-adjust:100%;}
+  
+  /* ★ KRITISCH FÜR ANDROID: Verhindert den schwarzen Rand beim Scrollen komplett! */
+  html, body {
+    background:#060609;
+    overscroll-behavior: contain; 
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Zwingt die Textarea, den Viewport beim Scrollen nicht zu verschieben */
+  textarea {
+    -webkit-user-select:text!important;
+    user-select:text!important;
+    font-size:16px!important;
+    -webkit-text-size-adjust:100%;
+    overscroll-behavior: contain; 
+  }
+  
   input,textarea,button{-webkit-appearance:none;-webkit-tap-highlight-color:transparent;}
   html{width:100%;height:100%;overflow:hidden;position:relative;}
   body{width:100%;height:100%;overflow:hidden;margin:0;}
