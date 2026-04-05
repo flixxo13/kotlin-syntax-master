@@ -1,37 +1,15 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { TOPICS } from "../data/topics";
+import { useLearningStore } from "../store/useLearningStore";
+import type { Exercise } from "../types";
 
 // ─── PROPS ────────────────────────────────────────────────────────────────────
 interface ExerciseScreenProps {
-  onBack?: () => void;
+  topicId:     string;
+  conceptId:   string;
+  exerciseId?: string;
+  onBack?:     () => void;
 }
-
-// ─── DATA ─────────────────────────────────────────────────────────────────────
-const EXERCISES = [
-  {
-    id: "ex1", conceptId: "val vs. var",
-    task: 'Deklariere eine read-only Variable "version" mit dem Wert 2.0.',
-    initialCode: "", solution: "val version = 2.0",
-    hints: ["... version = 2.0", "val version = ...", "val version = 2.0"],
-  },
-  {
-    id: "ex2", conceptId: "Funktionen",
-    task: 'Schreibe die main-Funktion, die "Hello" ausgibt.',
-    initialCode: "", solution: 'fun main() { println("Hello") }',
-    hints: ['... ...() { ...("...") }', 'fun main() { println("...") }', 'fun main() { println("Hello") }'],
-  },
-  {
-    id: "ex3", conceptId: "Null-Safety",
-    task: "Weise result den Wert von input zu, oder 0 falls input null ist.",
-    initialCode: "val input: Int? = null", solution: "val result = input ?: 0",
-    hints: ["... ... = ... ... ...", "val result = input ... 0", "val result = input ?: 0"],
-  },
-  {
-    id: "ex4", conceptId: "Listen",
-    task: "Greife auf Index 2 der Liste data zu und weise es x zu.",
-    initialCode: "val data = listOf(10, 20, 30)", solution: "val x = data[2]",
-    hints: ["... ... = ... ...", "val x = data[...]", "val x = data[2]"],
-  },
-];
 
 // ─── TOKENIZER & FEEDBACK ─────────────────────────────────────────────────────
 const KW = new Set(["val","var","fun","if","else","when","for","while","return",
@@ -153,7 +131,7 @@ function HighlightTask({ text }: { text: string }) {
   )}</>;
 }
 
-// ─── Chip Bar ─────────────────────────────────────────────────────────────────
+// ─── Chip Bar mit horizontalem Scroll + Fade ──────────────────────────────────
 function ChipBar({ chips, solToks, pct }: { chips: any[]; solToks: number; pct: number }) {
   return (
     <div style={{ position: "relative", height: 36, flexShrink: 0, background: "#0a0a10", borderTop: "1px solid #1e1e2e" }}>
@@ -181,9 +159,38 @@ function ChipBar({ chips, solToks, pct }: { chips: any[]; solToks: number; pct: 
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-export function ExerciseScreen({ onBack }: ExerciseScreenProps) {
-  const [exIdx, setExIdx]           = useState(0);
-  const ex                          = EXERCISES[exIdx];
+export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack }: ExerciseScreenProps) {
+  const { customTasks } = useLearningStore();
+
+  // Build exercise list dynamically from props
+  const EXERCISES: Exercise[] = useMemo(() => {
+    if (topicId === "custom") {
+      if (!customTasks.length) return [];
+      const idx = customTasks.findIndex(t => t.id === exerciseId);
+      return idx <= 0 ? customTasks : [...customTasks.slice(idx), ...customTasks.slice(0, idx)];
+    }
+    const topic = TOPICS.find(t => t.id === topicId);
+    if (!topic) return [];
+    return topic.concepts.flatMap(c => c.exercises);
+  }, [topicId, customTasks, exerciseId]);
+
+  // Starting index: jump to exerciseId or first exercise of conceptId
+  const startIdx = useMemo(() => {
+    if (exerciseId) { const i = EXERCISES.findIndex(e => e.id === exerciseId); return i >= 0 ? i : 0; }
+    if (conceptId)  { const i = EXERCISES.findIndex(e => e.conceptId === conceptId); return i >= 0 ? i : 0; }
+    return 0;
+  }, [EXERCISES, exerciseId, conceptId]);
+
+  const [exIdx, setExIdx]           = useState(startIdx);
+  const ex                          = EXERCISES[exIdx] ?? EXERCISES[0];
+
+  // Header title: for custom tasks use conceptId, for topic use topic title
+  const headerTitle = useMemo(() => {
+    if (topicId === "custom") return ex?.conceptId ?? "Eigene Aufgabe";
+    const topic = TOPICS.find(t => t.id === topicId);
+    const concept = topic?.concepts.find(c => c.id === ex?.conceptId);
+    return concept?.title ?? topic?.title ?? ex?.conceptId ?? "";
+  }, [topicId, ex]);
 
   const [code, setCode]             = useState(ex.initialCode || "");
   const [hintLevel, setHintLevel]   = useState(0);
@@ -197,88 +204,62 @@ export function ExerciseScreen({ onBack }: ExerciseScreenProps) {
   const [showChips,  setShowChips]  = useState(true);
   const [sheetH, setSheetH]         = useState<number | null>(null);
   const [kbOpen, setKbOpen]         = useState(false);
+  const [kbPadding, setKbPadding]   = useState(0);
   const [isScrollingTokens, setIsScrollingTokens] = useState(false);
 
-  // ── Task overlay ──────────────────────────────────────────────────────────
-  const [taskOverlay, setTaskOverlay]           = useState(true);
-  // ── FIX 3: Draggable overlay position ─────────────────────────────────────
-  const [overlayPos, setOverlayPos]             = useState({ x: 0, y: 0 });
-  const [isDraggingOverlay, setIsDraggingOverlay] = useState(false);
-  const overlayDragRef = useRef<{ startX: number; startY: number; ox: number; oy: number } | null>(null);
+  // ★ Task-Overlay im Fullscreen (schwebend, transparent)
+  const [taskOverlay, setTaskOverlay] = useState(true);
 
+  // ★ Flash-Animation Token
   const [flashIdx, setFlashIdx]     = useState<number | null>(null);
+  // ★ Case-Hinweis
   const [caseHint, setCaseHint]     = useState<string | null>(null);
 
-  const taRef           = useRef<HTMLTextAreaElement>(null);
-  const sheetDragY      = useRef<number | null>(null);
-  const sheetDragH      = useRef<number | null>(null);
+  const taRef      = useRef<HTMLTextAreaElement>(null);
+  const sheetDragY = useRef<number | null>(null);
+  const sheetDragH = useRef<number | null>(null);
+  // Auto-fade Timer
   const overlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── FIX 2.2: Viewport height state (eliminates keyboard gap on Chrome) ────
-  const [vpH, setVpH] = useState(() => window.visualViewport?.height ?? window.innerHeight);
-
-  // ── KEYBOARD + VIEWPORT HEIGHT ────────────────────────────────────────────
+  // ── KEYBOARD LOCK ────────────────────────────────────────────────────────────
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) { dbg("NO VISUAL VIEWPORT"); return; }
-    let isOpen = false;
-    let baseHeight = window.innerHeight;
-
+    let isOpen = false, lockedH = 0, baseHeight = window.innerHeight;
     const onVvResize = () => {
-      const h = vv.height;
-      // FIX 2.2: Always sync container height to visible area → no gap
-      setVpH(h);
-
-      const rawKbH = Math.max(0, baseHeight - h);
+      const rawKbH = Math.max(0, baseHeight - vv.height);
       if (!isOpen) {
-        if (rawKbH > 100) {
-          isOpen = true;
-          setKbOpen(true);
-          dbg(`KB OPEN, visibleH=${Math.round(h)}`);
-        }
+        if (rawKbH > 100) { isOpen = true; lockedH = rawKbH; setKbOpen(true); setKbPadding(lockedH); dbg(`KB LOCKED @ ${Math.round(lockedH)}px`); }
       } else {
-        if (rawKbH < 50) {
-          isOpen = false;
-          setKbOpen(false);
-          dbg("KB CLOSED");
-        }
+        if (rawKbH < 50) { isOpen = false; lockedH = 0; setKbOpen(false); setKbPadding(0); dbg("KB UNLOCKED"); }
       }
     };
-
     const onWinResize = () => {
       const nb = window.innerHeight;
-      if (Math.abs(nb - baseHeight) > 50) {
-        baseHeight = nb;
-        isOpen = false;
-        setKbOpen(false);
-        onVvResize();
-      }
+      if (Math.abs(nb - baseHeight) > 50) { baseHeight = nb; isOpen = false; lockedH = 0; setKbPadding(0); onVvResize(); }
     };
-
     vv.addEventListener("resize", onVvResize);
     window.addEventListener("resize", onWinResize);
-    return () => {
-      vv.removeEventListener("resize", onVvResize);
-      window.removeEventListener("resize", onWinResize);
-    };
+    return () => { vv.removeEventListener("resize", onVvResize); window.removeEventListener("resize", onWinResize); };
   }, []);
 
-  // ── Reset on exercise change ──────────────────────────────────────────────
+  // ── reset ──
   useEffect(() => {
     setCode(ex.initialCode || "");
     setHintLevel(0); setSolShown(false);
     setFb(null); setChips([]); setSolved(false);
     setTaskOpen(true); setSheetH(null); setFullscreen(false);
     setCaseHint(null); setTaskOverlay(true);
-    setOverlayPos({ x: 0, y: 0 }); // FIX 3: reset drag position
   }, [ex]);
 
   useEffect(() => { setChips(code.trim() ? analyze(code, ex.solution) : []); }, [code, ex.solution]);
   useEffect(() => { if (solShown) setCode(ex.solution); }, [solShown, ex.solution]);
 
+  // ★ Auto-fade: Overlay blendet aus wenn User tippt
   const handleCodeChange = useCallback((val: string) => {
     setCode(val);
     setCaseHint(null);
+    // Beim Tippen: Overlay nach 1.5s ausblenden
     if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current);
     overlayTimerRef.current = setTimeout(() => setTaskOverlay(false), 1500);
   }, []);
@@ -320,46 +301,23 @@ export function ExerciseScreen({ onBack }: ExerciseScreenProps) {
 
   const openFullscreenAndFocus = useCallback(() => {
     setFullscreen(true);
-    setTaskOverlay(true);
+    setTaskOverlay(true); // Beim Öffnen immer kurz anzeigen
     requestAnimationFrame(() => { requestAnimationFrame(() => { taRef.current?.focus({ preventScroll: true }); }); });
   }, []);
 
-  // ── Sheet drag ────────────────────────────────────────────────────────────
   const onSheetDragStart = (e: any) => { sheetDragY.current = "touches" in e ? e.touches[0].clientY : e.clientY; sheetDragH.current = sheetH || 200; };
   const onSheetDragMove  = (e: any) => { if (sheetDragY.current === null) return; const y = "touches" in e ? e.touches[0].clientY : e.clientY; setSheetH(Math.max(60, Math.min(420, (sheetDragH.current || 200) + (sheetDragY.current - y)))); };
   const onSheetDragEnd   = (e: any) => { const y = "changedTouches" in e ? e.changedTouches[0].clientY : e.clientY; if ((sheetDragY.current || 0) - y < -60) setSheetH(null); sheetDragY.current = null; sheetDragH.current = null; };
 
-  // ── FIX 3: Overlay drag handlers ─────────────────────────────────────────
-  const onOverlayPointerDown = useCallback((e: React.PointerEvent) => {
-    e.stopPropagation();
-    overlayDragRef.current = { startX: e.clientX, startY: e.clientY, ox: overlayPos.x, oy: overlayPos.y };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    setIsDraggingOverlay(true);
-    if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current); // pause auto-fade while dragging
-  }, [overlayPos]);
-
-  const onOverlayPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!overlayDragRef.current) return;
-    e.stopPropagation();
-    setOverlayPos({
-      x: overlayDragRef.current.ox + e.clientX - overlayDragRef.current.startX,
-      y: overlayDragRef.current.oy + e.clientY - overlayDragRef.current.startY,
-    });
-  }, []);
-
-  const onOverlayPointerUp = useCallback(() => {
-    overlayDragRef.current = null;
-    setIsDraggingOverlay(false);
-  }, []);
-
-  // ── Computed values ───────────────────────────────────────────────────────
   const codeLines = code ? code.split("\n").length : 0;
   const initLines = ex.initialCode ? ex.initialCode.split("\n").length : 0;
   const ghostTop  = PAD_T + Math.max(codeLines, initLines) * LINE_H + Math.round(LINE_H * 0.5);
-  const currentHintText = hl === 1 ? ex.hints[0] : hl === 2 ? ex.hints[1] : hl === 3 ? ex.hints[2] : null;
+  // Normalize hints object → array for display
+  const hintsArr = ex ? [ex.hints.level1, ex.hints.level2, ex.hints.level3] : [];
+  const currentHintText = hl === 1 ? hintsArr[0] : hl === 2 ? hintsArr[1] : hl === 3 ? hintsArr[2] : null;
   const showGhost = !!currentHintText && !solShown;
   const smartToks = getSmartTokens(code).slice(0, 8);
-  const TOKEN_H   = 48;
+  const TOKEN_H   = 48; // immer 1 Zeile, fest
   const SHEET_OPEN = sheetH !== null;
 
   const editorColor = fb === "correct" ? "#4ade80"
@@ -367,16 +325,14 @@ export function ExerciseScreen({ onBack }: ExerciseScreenProps) {
                     : fb === "case" ? "#fbbf24"
                     : "#e2e8f0";
 
-  // FIX 3: Full opacity while dragging; slightly less transparent at rest
-  const overlayOpacity = isDraggingOverlay ? 1
-                       : !taskOverlay ? 0
+  // ★ Overlay-Transparenz: je mehr Code, desto transparenter
+  const overlayOpacity = !taskOverlay ? 0
                        : code.length === 0 ? 0.97
-                       : code.length < 5 ? 0.88
-                       : 0.75; // was 0.55 → slightly less transparent
+                       : code.length < 5 ? 0.82
+                       : 0.55;
 
   // ══════════════════════════════════════════════════════════════════════
   // FULLSCREEN
-  // FIX 2.2: height = vpH (visualViewport.height) → no keyboard gap on Chrome
   // ══════════════════════════════════════════════════════════════════════
   if (fullscreen) {
     return (
@@ -385,39 +341,46 @@ export function ExerciseScreen({ onBack }: ExerciseScreenProps) {
         <DebugOverlay />
         <div style={{
           display: "flex", flexDirection: "column",
-          height: vpH,           // ← FIX 2.2: exact visible area, no gap
-          maxWidth: 430, margin: "0 auto",
+          height: "100dvh", maxWidth: 430, margin: "0 auto",
           background: "#060609", color: "#f1f0fb",
           fontFamily: "'Inter',system-ui,sans-serif", overflow: "hidden",
-          // No paddingBottom needed — vpH already accounts for keyboard
+          paddingBottom: kbPadding + TOKEN_H + (SHEET_OPEN ? (sheetH || 0) : 0),
         }}>
 
           {/* Header */}
           <div style={{ height: 46, flexShrink: 0, background: "#0d0d14", borderBottom: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 10px", gap: 6 }}>
-            {/* FIX 1: ← goes back to Normal View (not HomeScreen — use Normal View's ← for HomeScreen) */}
             <button onClick={() => { setFullscreen(false); taRef.current?.blur(); }} style={smallBtn()}>←</button>
 
+            {/* Progress + Titel */}
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
               <div style={{ width: "80%", height: 2, background: "#1e1e2e", borderRadius: 2, overflow: "hidden" }}>
                 <div style={{ width: `${((exIdx + 1) / EXERCISES.length) * 100}%`, height: "100%", background: "#7c3aed", transition: "width 0.3s" }} />
               </div>
-              <span style={{ fontSize: 11, fontWeight: 600, color: solved ? "#4ade80" : "#f1f0fb" }}>{ex.conceptId}{solved && " ✓"}</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: solved ? "#4ade80" : "#f1f0fb" }}>{headerTitle}{solved && " ✓"}</span>
             </div>
 
-            <button onClick={() => setTaskOverlay(v => !v)} style={{ ...toggleBtn(taskOverlay), fontSize: 14 }} title="Aufgabe anzeigen">📋</button>
+            {/* 📋 Toggle Task-Overlay */}
+            <button
+              onClick={() => setTaskOverlay(v => !v)}
+              style={{
+                ...toggleBtn(taskOverlay),
+                fontSize: 14,
+              }}
+              title="Aufgabe anzeigen"
+            >📋</button>
             <button onClick={() => setShowChips(p => !p)} style={toggleBtn(showChips)}>≡</button>
             <button onClick={() => setShowTokens(p => !p)} style={toggleBtn(showTokens)}>⌨</button>
           </div>
 
-          {/* Chips (when keyboard closed) */}
+          {/* Chips */}
           {showChips && !kbOpen && <ChipBar chips={chips} solToks={solToks} pct={pct} />}
 
-          {/* Editor */}
+          {/* Editor – relativ, damit Overlay drüber liegen kann */}
           <div style={{
             flex: 1, minHeight: 0, position: "relative", background: "#0a0a10",
             animation: fb === "incorrect" ? "shake 0.4s cubic-bezier(.36,.07,.19,.97) both" : "none",
           }}>
-            {/* Line number */}
+            {/* Zeilennummer */}
             <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 28, background: "#0d0d14", borderRight: "1px solid #1a1a28", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: PAD_T, fontSize: 11, fontFamily: "monospace", color: "#3a3a5a", userSelect: "none", pointerEvents: "none" }}>1</div>
 
             {/* Ghost Hint */}
@@ -454,71 +417,40 @@ export function ExerciseScreen({ onBack }: ExerciseScreenProps) {
               placeholder={showGhost ? "" : "// Code hier eingeben…"}
             />
 
-            {/* ── FIX 3: FLOATING TASK OVERLAY – draggable ─────────────────── */}
+            {/* ★ FLOATING TASK OVERLAY – schwebt über dem Editor */}
             <div style={{
-              position: "absolute",
-              left: 28, right: 0, top: 0,
+              position: "absolute", left: 28, right: 0, top: 0,
               zIndex: 10,
               opacity: overlayOpacity,
-              transition: isDraggingOverlay ? "none" : "opacity 0.6s ease",
-              pointerEvents: overlayOpacity < 0.05 ? "none" : "auto",
-              transform: `translate(${overlayPos.x}px, ${overlayPos.y}px)`,
-              // Prevent going off-screen at left edge
-              willChange: "transform",
+              transition: "opacity 0.6s ease",
+              pointerEvents: overlayOpacity < 0.1 ? "none" : "auto",
             }}>
               <div style={{
                 margin: "8px 8px 0",
-                background: "rgba(8,8,16,0.82)",
-                backdropFilter: "blur(14px)",
-                WebkitBackdropFilter: "blur(14px)",
+                background: "rgba(8,8,16,0.78)",
+                backdropFilter: "blur(12px)",
+                WebkitBackdropFilter: "blur(12px)",
                 borderRadius: 10,
-                border: "1px solid rgba(124,58,237,0.25)",
-                padding: "0 0 10px",
-                boxShadow: "0 4px 28px rgba(0,0,0,0.55)",
-                overflow: "hidden",
+                border: "1px solid rgba(124,58,237,0.2)",
+                padding: "10px 12px",
+                boxShadow: "0 4px 24px rgba(0,0,0,0.5)",
               }}>
-                {/* Drag handle bar */}
-                <div
-                  onPointerDown={onOverlayPointerDown}
-                  onPointerMove={onOverlayPointerMove}
-                  onPointerUp={onOverlayPointerUp}
-                  onPointerCancel={onOverlayPointerUp}
-                  style={{
-                    display: "flex", alignItems: "center", justifyContent: "space-between",
-                    padding: "7px 12px 6px",
-                    cursor: isDraggingOverlay ? "grabbing" : "grab",
-                    touchAction: "none",
-                    borderBottom: "1px solid rgba(124,58,237,0.12)",
-                    background: "rgba(124,58,237,0.06)",
-                    userSelect: "none",
-                  }}
-                >
-                  <span style={{ fontSize: 9, fontFamily: "monospace", color: "rgba(124,58,237,0.6)", letterSpacing: ".08em", textTransform: "uppercase" }}>Aufgabe</span>
-                  {/* Grip dots */}
-                  <div style={{ display: "flex", gap: 2, opacity: 0.4 }}>
-                    {[0,1,2,3,4,5].map(i => (
-                      <div key={i} style={{ width: 3, height: 3, borderRadius: "50%", background: "#7c3aed" }} />
-                    ))}
+                {ex.initialCode && (
+                  <div style={{ fontFamily: "monospace", fontSize: 11, color: "#6b7280", background: "rgba(255,255,255,0.04)", borderRadius: 6, padding: "3px 8px", marginBottom: 6, border: "1px solid rgba(255,255,255,0.06)" }}>
+                    {ex.initialCode}
                   </div>
+                )}
+                <div style={{ fontSize: 13, lineHeight: 1.5, color: "#d1d5db" }}>
+                  <HighlightTask text={ex.task} />
                 </div>
-
-                <div style={{ padding: "8px 12px 0" }}>
-                  {ex.initialCode && (
-                    <div style={{ fontFamily: "monospace", fontSize: 11, color: "#6b7280", background: "rgba(255,255,255,0.04)", borderRadius: 6, padding: "3px 8px", marginBottom: 6, border: "1px solid rgba(255,255,255,0.06)" }}>
-                      {ex.initialCode}
-                    </div>
-                  )}
-                  <div style={{ fontSize: 13, lineHeight: 1.5, color: "#d1d5db" }}>
-                    <HighlightTask text={ex.task} />
-                  </div>
-                  <div style={{ marginTop: 5, fontSize: 9, color: "rgba(107,114,128,0.5)", fontFamily: "monospace", textAlign: "right" }}>
-                    tippt automatisch weg ↗
-                  </div>
+                {/* Tap-to-dismiss Hinweis */}
+                <div style={{ marginTop: 6, fontSize: 9, color: "rgba(107,114,128,0.6)", fontFamily: "monospace", textAlign: "right" }}>
+                  tippt automatisch weg ↗
                 </div>
               </div>
             </div>
 
-            {/* Case-Hinweis Banner */}
+            {/* ★ Case-Hinweis Banner */}
             {fb === "case" && caseHint && (
               <div style={{ position: "absolute", top: 0, left: 28, right: 0, zIndex: 15, background: "rgba(251,191,36,.12)", backdropFilter: "blur(8px)", borderBottom: "1px solid rgba(251,191,36,.3)", padding: "6px 14px", display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ fontSize: 14 }}>⚠️</span>
@@ -534,19 +466,20 @@ export function ExerciseScreen({ onBack }: ExerciseScreenProps) {
             )}
           </div>
 
-          {/* ── Toolbar (in flex flow, always visible above keyboard) ── */}
+          {/* Toolbar im Flex-Flow */}
           <div style={{ flexShrink: 0, display: "flex", flexDirection: "column" }}>
 
-            {/* Chips when KB open */}
+            {/* Chips wenn KB offen */}
             {showChips && kbOpen && <ChipBar chips={chips} solToks={solToks} pct={pct} />}
 
             {showTokens ? (
+              // ★ Token-Leiste: IMMER 1 Zeile, kein wrap
               <div
                 style={{
                   height: TOKEN_H,
                   background: "#0d0d14", borderTop: "1px solid #1e1e2e",
                   display: "flex", alignItems: "center",
-                  flexWrap: "nowrap",
+                  flexWrap: "nowrap", // ★ KRITISCH: niemals umbrechen
                   padding: "0 8px", gap: 5,
                   overflowX: "auto", scrollbarWidth: "none", flexShrink: 0,
                 }}
@@ -572,7 +505,7 @@ export function ExerciseScreen({ onBack }: ExerciseScreenProps) {
 
                 <div style={{ width: 1, height: 22, background: "#1e1e2e", flexShrink: 0 }} />
 
-                {/* Token Buttons */}
+                {/* Token Buttons mit Flash */}
                 {smartToks.map((s, i) => {
                   const isFlashing = flashIdx === i;
                   return (
@@ -620,7 +553,7 @@ export function ExerciseScreen({ onBack }: ExerciseScreenProps) {
                 <div style={{ flex: 1, overflowY: "auto", padding: "0 12px 14px", display: "flex", flexDirection: "column", gap: 8, scrollbarWidth: "none" }}>
                   {hl === 0 && !solShown
                     ? <div style={{ textAlign: "center", padding: "10px 0", fontSize: 12, color: "#4b5563" }}>Drücke 💡 für einen Hinweis</div>
-                    : ex.hints.slice(0, hl).map((h, i) => (
+                    : hintsArr.slice(0, hl).map((h, i) => (
                         <div key={i} style={{ padding: "9px 12px", borderRadius: 10, background: "#0d0d14", border: `1px solid ${HCOL[i]}22`, borderLeft: `3px solid ${HCOL[i]}` }}>
                           <div style={{ fontSize: 10, fontFamily: "monospace", color: HCOL[i], marginBottom: 4, letterSpacing: ".06em" }}>HINT {i + 1}</div>
                           <div style={{ fontFamily: "monospace", fontSize: 13, color: "#d1d5db", lineHeight: 1.6 }}>{h}</div>
@@ -644,22 +577,17 @@ export function ExerciseScreen({ onBack }: ExerciseScreenProps) {
 
   // ══════════════════════════════════════════════════════════════════════
   // NORMAL VIEW
-  // FIX 1: ← navigates to HomeScreen via onBack prop
-  // FIX 2.1: Editor area fixed height (150px) → no empty black block
   // ══════════════════════════════════════════════════════════════════════
   return (
     <>
       <style>{STYLES}</style>
       <DebugOverlay />
       <div style={{ display: "flex", flexDirection: "column", height: "100dvh", maxWidth: 430, margin: "0 auto", background: "#060609", color: "#f1f0fb", fontFamily: "'Inter',system-ui,sans-serif", overflow: "hidden", paddingBottom: 44 }}>
-
-        {/* Header */}
         <div style={{ height: 52, flexShrink: 0, background: "#0d0d14", borderBottom: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 10px 0 14px", gap: 8 }}>
-          {/* FIX 1: back to HomeScreen */}
           <button style={smallBtn()} onClick={onBack}>←</button>
           <div style={{ flex: 1, textAlign: "center", lineHeight: 1.3 }}>
             <div style={{ fontSize: 9, fontFamily: "monospace", color: "#6b7280", textTransform: "uppercase", letterSpacing: ".1em" }}>ÜBUNG {exIdx + 1}/{EXERCISES.length}</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: solved ? "#4ade80" : "#f1f0fb" }}>{ex.conceptId}{solved && " ✓"}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: solved ? "#4ade80" : "#f1f0fb" }}>{headerTitle}{solved && " ✓"}</div>
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             <button style={smallBtn(28)} onClick={() => setExIdx(p => Math.max(0, p - 1))}>‹</button>
@@ -667,7 +595,6 @@ export function ExerciseScreen({ onBack }: ExerciseScreenProps) {
           </div>
         </div>
 
-        {/* Task Card */}
         <div style={{ background: "#0d0d14", borderBottom: "1px solid #1e1e2e", flexShrink: 0 }}>
           <button onClick={() => setTaskOpen(p => !p)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 14px", background: "none", border: "none", cursor: "pointer", color: "#f1f0fb", outline: "none" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 7 }}><span>📋</span><span style={{ fontSize: 10, fontFamily: "monospace", color: "#6b7280", textTransform: "uppercase", letterSpacing: ".08em" }}>Aufgabe</span></div>
@@ -681,30 +608,20 @@ export function ExerciseScreen({ onBack }: ExerciseScreenProps) {
           )}
         </div>
 
-        {/* Chip Bar */}
         <ChipBar chips={chips} solToks={solToks} pct={pct} />
 
-        {/* FIX 2.1: Editor preview — fixed 150px, not flex:1 */}
-        <div
-          style={{ height: 150, flexShrink: 0, position: "relative", background: "#0a0a10", cursor: "pointer", borderBottom: "1px solid #1a1a28" }}
-          onClick={openFullscreenAndFocus}
-        >
+        <div style={{ flex: 1, minHeight: 0, position: "relative", background: "#0a0a10", cursor: "pointer" }} onClick={openFullscreenAndFocus}>
           <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 28, background: "#0d0d14", borderRight: "1px solid #1a1a28", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: PAD_T, fontSize: 11, fontFamily: "monospace", color: "#3a3a5a", userSelect: "none", pointerEvents: "none" }}>1</div>
           <textarea ref={taRef} value={code} onChange={e => setCode(e.target.value)} readOnly
             style={{ position: "absolute", inset: 0, left: 28, background: "transparent", border: "none", outline: "none", fontFamily: "'JetBrains Mono',monospace", fontSize: 16, lineHeight: `${LINE_H}px`, color: "#e2e8f0", padding: `${PAD_T}px 12px 10px`, resize: "none", pointerEvents: "none" }}
             placeholder="// Code hier eingeben…" />
         </div>
 
-        {/* FIX 2.1: Tap-zone fills remaining space cleanly */}
-        <div
-          style={{ flex: 1, background: "#0a0a10", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
-          onClick={openFullscreenAndFocus}
-        >
-          <span style={{ fontSize: 11, color: "#1e1e2e", fontFamily: "monospace", letterSpacing: ".06em" }}>↑ Tippe zum Starten</span>
+        <div style={{ textAlign: "center", padding: "5px 0", flexShrink: 0, background: "#0a0a10", borderBottom: "1px solid #1e1e2e" }}>
+          <span style={{ fontSize: 10, color: "#2a2a3e", fontFamily: "monospace" }}>Tippe auf den Editor zum Starten →</span>
         </div>
       </div>
 
-      {/* Fixed Bottom Bar */}
       <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 430, zIndex: 200 }}>
         <div style={{ height: 44, background: "#0d0d14", borderTop: "1px solid #1e1e2e", display: "flex", alignItems: "center", padding: "0 16px" }}>
           <button onClick={requestHint} disabled={solShown}
