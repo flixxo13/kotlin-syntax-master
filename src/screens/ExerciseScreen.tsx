@@ -667,6 +667,3 @@ const STYLES = `
     40%, 60% { transform: translate3d(4px, 0, 0); }
   }
 `;
-import { useState, useEffect, useRef, useCallback } from "react";
-import { TOPICS } from '../data/topics';
-import { useLearningStore } from '../store/useLearningStore';
