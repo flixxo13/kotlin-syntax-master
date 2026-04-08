@@ -87,17 +87,33 @@ function validateBlocks(text: string): ValidationResult[] {
   let rawItems: any[] = [];
   let isJson = false;
 
+  // Hilfsfunktion für robusten JSON-Parse (ignoriert Markdown oder Begrüßungstexte der KI)
+  let jsonString = text.trim();
+  jsonString = jsonString.replace(/^```[a-z]*\s*/i, '').replace(/```\s*$/, '').trim();
+
   try {
-    const parsed = JSON.parse(text);
-    if (Array.isArray(parsed)) {
-      rawItems = parsed.map((item, i) => ({ data: item, index: i }));
-      isJson = true;
+    let parsed = JSON.parse(jsonString);
+    if (!Array.isArray(parsed)) throw new Error("Not an array");
+    rawItems = parsed.map((item, i) => ({ data: item, index: i }));
+    isJson = true;
+  } catch (e1) {
+    // Fallback: Versuche das Array direkt aus dem String zu extrahieren
+    const start = text.indexOf('[');
+    const end = text.lastIndexOf(']');
+    if (start !== -1 && end !== -1 && start < end) {
+      try {
+        let parsed = JSON.parse(text.substring(start, end + 1));
+        if (!Array.isArray(parsed)) throw new Error("Not an array");
+        rawItems = parsed.map((item, i) => ({ data: item, index: i }));
+        isJson = true;
+      } catch (e2) {
+        rawItems = parseRawBlocks(text);
+        isJson = false;
+      }
     } else {
-      throw new Error("Not an array");
+      rawItems = parseRawBlocks(text);
+      isJson = false;
     }
-  } catch (e) {
-    rawItems = parseRawBlocks(text);
-    isJson = false;
   }
 
   const seenIds = new Map<string, boolean>();
