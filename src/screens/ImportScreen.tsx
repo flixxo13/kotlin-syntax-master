@@ -38,29 +38,60 @@ const emptyTask = (): Exercise => ({
 });
 
 // ─── KI PROMPT TEMPLATE ───────────────────────────────────────────────────────
-const KI_PROMPT = `Generiere 5 Kotlin-Übungen im SYNTAX_BUILDER Format.
-Thema: [DEIN THEMA hier einsetzen]
+const KI_PROMPT = "Du bist ein Senior Kotlin Developer und erstellst interaktive Lernaufgaben für Anfänger.
+Generiere 5 voneinander unabhängige Kotlin-Übungen zum Thema: [DEIN THEMA HIER]
 
-Format:
-ID: b_XX
+REGELN FÜR DIE GENERIERUNG:
+1. Nutze exakt das unten stehende Textformat. Jede Aufgabe wird durch --- getrennt.
+2. Keine Begrüßung, keine Erklärungen. Gib nur die Datenblätter zurück.
+3. Nur Übungen im "SYNTAX_BUILDER" Modus generieren.
+4. Schreibe bei Code-Blöcken reinen Kotlin-Code (Du kannst Markdown-Backticks weglassen).
+
+STRUKTUR DER AUFGABE:
+---
+ID: [Eindeutige ID, z.B. var_01]
 MODUS: SYNTAX_BUILDER
-THEMA: ...
-BESCHREIBUNG: ...
+THEMA: [Exaktes Kotlin-Thema, z.B. Variablen]
+BESCHREIBUNG: [Klare, kurze Aufgabenstellung]
 STARTCODE:
-\`\`\`kotlin
-\`\`\`
-HINT1_STRUKTUR: ... ... = ...
-HINT2_ANKER: val name = ...
+[Startcode, falls nötig]
+HINT1_STRUKTUR: [Grobe Struktur mit ... ]
+HINT2_ANKER: [Einige Keywords sichtbar]
 HINT3_KONTEXT:
-\`\`\`kotlin
-___ name = ... // Keyword gesucht
-\`\`\`
+[Fast die ganze Lösung, markiere exakte Lücke mit ___]
 LOESUNG:
-\`\`\`kotlin
-val name = "Kotlin"
-\`\`\`
----`;
+[Die korrekte Kotlin-Lösung]
+---
 
+BEISPIEL 1:
+---
+ID: var_01
+MODUS: SYNTAX_BUILDER
+THEMA: Variablen
+BESCHREIBUNG: Deklariere eine unveränderliche Variable namens 'name' mit dem Wert "Kotlin".
+STARTCODE:
+
+HINT1_STRUKTUR: ... ... = "..."
+HINT2_ANKER: val name = "..."
+HINT3_KONTEXT: ___ name = "Kotlin"
+LOESUNG:
+val name = "Kotlin"
+---
+
+BEISPIEL 2:
+---
+ID: loop_01
+MODUS: SYNTAX_BUILDER
+THEMA: Schleifen
+BESCHREIBUNG: Schreibe eine for-Schleife, die von 1 bis 5 zählt (inklusive) und 'i' druckt.
+STARTCODE:
+
+HINT1_STRUKTUR: ... (i ... 1...5) { println(i) }
+HINT2_ANKER: for (i in 1...5) { println(i) }
+HINT3_KONTEXT: for (i in 1 ___ 5) { println(i) }
+LOESUNG:
+for (i in 1..5) { println(i) }
+--- "
 // ═══════════════════════════════════════════════════════════════════════════════
 // IMPORT SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
