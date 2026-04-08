@@ -9,7 +9,8 @@ import {
   Edit2, Plus, ArrowLeft, Eye, Save, ChevronDown, ChevronUp, Copy
 } from 'lucide-react';
 
-// ─── TYPES ────────────────────────────────────────────────────────────────────
+// ─── TYPES ✗ Syntax-Fehler: Expected ',' or '}' after property value in JSON at position 221 (line 8 column 34)
+✗ Die KI hat vermutlich ungültiges JSON produziert (z.B. unescapte Zeilenumbrüche in Strings). ────────────────────────────────────────────────────────────────────
 type View = 'list' | 'import' | 'preview' | 'editor';
 type ValidationStatus = 'valid' | 'warning' | 'invalid';
 
