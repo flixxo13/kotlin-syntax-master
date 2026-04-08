@@ -54,7 +54,15 @@ function parseRawBlocks(text: string): Array<{ data: Record<string, string>; ind
     'ZIELCODE', 'BAUSTEINE_RICHTIG', 'BAUSTEINE_DISTRAKTOR', 'BAUSTEIN_MAP',
   ];
 
-  const blocks = text.split(/---/).map(b => b.trim()).filter(b => b.length > 0);
+  // Extrem robuster Split: Wir trennen bei "---" UND bei jedem neuen "ID: " (falls die KI das --- vergisst)
+  let markedText = text.replace(/^(?:\*\*)?ID(?:\*\*)?\s*:/gim, '___SPLIT___$&');
+  markedText = markedText.replace(/^(?:\*\*)?MODUS(?:\*\*)?\s*:/gim, '___SPLIT_MODUS___$&'); // Just to see if they forget ID entirely? No, we just split by ID or ---
+  markedText = text.replace(/^(?:\*\*)?ID(?:\*\*)?\s*:/gim, '___SPLIT___$&');
+  markedText = markedText.replace(/^---/gim, '___SPLIT___');
+  markedText = markedText.replace(/^___/gim, '___SPLIT___'); // also ___
+  markedText = markedText.replace(/^\*\*\*/gim, '___SPLIT___'); // also ***
+
+  const blocks = markedText.split('___SPLIT___').map(b => b.trim()).filter(b => b.length > 0);
 
   return blocks.map((block, index) => {
     const lines = block.split('\n');
@@ -187,6 +195,36 @@ HINT3_KONTEXT:
 [Fast die ganze Lösung, markiere exakte Lücke mit ___]
 LOESUNG:
 [Die korrekte Kotlin-Lösung]
+---
+
+BEISPIEL 1:
+---
+ID: var_01
+MODUS: SYNTAX_BUILDER
+THEMA: Variablen
+BESCHREIBUNG: Deklariere eine unveränderliche Variable namens 'name' mit dem Wert "Kotlin".
+STARTCODE:
+
+HINT1_STRUKTUR: ... ... = "..."
+HINT2_ANKER: val name = "..."
+HINT3_KONTEXT: ___ name = "Kotlin"
+LOESUNG:
+val name = "Kotlin"
+---
+
+BEISPIEL 2:
+---
+ID: loop_01
+MODUS: SYNTAX_BUILDER
+THEMA: Schleifen
+BESCHREIBUNG: Schreibe eine for-Schleife, die von 1 bis 5 zählt (inklusive) und 'i' druckt.
+STARTCODE:
+
+HINT1_STRUKTUR: ... (i ... 1...5) { println(i) }
+HINT2_ANKER: for (i in 1...5) { println(i) }
+HINT3_KONTEXT: for (i in 1 ___ 5) { println(i) }
+LOESUNG:
+for (i in 1..5) { println(i) }
 ---`;
 
 // ═══════════════════════════════════════════════════════════════════════════════
