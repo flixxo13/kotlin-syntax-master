@@ -54,17 +54,15 @@ function parseRawBlocks(text: string): Array<{ data: Record<string, string>; ind
     'ZIELCODE', 'BAUSTEINE_RICHTIG', 'BAUSTEINE_DISTRAKTOR', 'BAUSTEIN_MAP',
   ];
 
-  // Extrem robuster Split: Wir trennen bei "---" UND bei jedem neuen "ID: " (falls die KI das --- vergisst)
+  // Extrem robuster Split: Wir trennen bei "---" UND bei jedem "ID:" am Zeilenanfang
   let markedText = text.replace(/^(?:\*\*)?ID(?:\*\*)?\s*:/gim, '___SPLIT___$&');
-  markedText = markedText.replace(/^(?:\*\*)?MODUS(?:\*\*)?\s*:/gim, '___SPLIT_MODUS___$&'); // Just to see if they forget ID entirely? No, we just split by ID or ---
-  markedText = text.replace(/^(?:\*\*)?ID(?:\*\*)?\s*:/gim, '___SPLIT___$&');
   markedText = markedText.replace(/^---/gim, '___SPLIT___');
-  markedText = markedText.replace(/^___/gim, '___SPLIT___'); // also ___
-  markedText = markedText.replace(/^\*\*\*/gim, '___SPLIT___'); // also ***
+  markedText = markedText.replace(/^___/gim, '___SPLIT___');
+  markedText = markedText.replace(/^\*\*\*/gim, '___SPLIT___');
 
   const blocks = markedText.split('___SPLIT___').map(b => b.trim()).filter(b => b.length > 0);
 
-  return blocks.map((block, index) => {
+  const parsedBlocks = blocks.map((block, index) => {
     const lines = block.split('\n');
     const data: Record<string, string> = {};
     let currentKey = '';
@@ -72,7 +70,7 @@ function parseRawBlocks(text: string): Array<{ data: Record<string, string>; ind
     let inCode = false;
 
     lines.forEach(line => {
-      // Robust Regex: Erlaubt optionales Markdown ** vor und nach dem Key (z.B. **ID:**)
+      // Robust Regex: Erlaubt optionales Markdown ** vor und nach dem Key (z.B. **ID:** oder **ID**: )
       const keyMatch = line.trim().match(/^(?:\*\*)?([A-Z0-9_]+)(?:\*\*)?\s*:/);
       const isKnown = keyMatch && KNOWN_KEYS.includes(keyMatch[1]);
       
@@ -90,6 +88,9 @@ function parseRawBlocks(text: string): Array<{ data: Record<string, string>; ind
     if (currentKey) data[currentKey] = currentContent.join('\n').trim();
     return { data, index };
   });
+
+  // Filter out any conversational garbage blocks that didn't contain any valid task keys
+  return parsedBlocks.filter(b => Object.keys(b.data).length > 0);
 }
 
 // ─── VALIDATOR ────────────────────────────────────────────────────────────────
