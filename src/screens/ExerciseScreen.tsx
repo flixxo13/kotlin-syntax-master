@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { TOPICS } from "../data/topics";
 import { useLearningStore } from "../store/useLearningStore";
-import type { Exercise } from "../types";
+import type { Exercise, ExerciseDifficulty } from "../types";
+import { DifficultyModal } from "../components/exercise/DifficultyModal";
 
 // ─── PROPS ────────────────────────────────────────────────────────────────────
 interface ExerciseScreenProps {
@@ -281,7 +282,7 @@ function HighlightTask({ text }: { text: string }) {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack }: ExerciseScreenProps) {
-  const { customTasks } = useLearningStore();
+  const { customTasks, rateDifficulty } = useLearningStore();
 
   // ── Build exercise list dynamically ──────────────────────────────────────────
   const EXERCISES: Exercise[] = useMemo(() => {
@@ -318,6 +319,7 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack }: Exerc
   const [fb, setFb]                 = useState<string | null>(null);
   const [chips, setChips]           = useState<any[]>([]);
   const [solved, setSolved]         = useState(false);
+  const [showDifficulty, setShowDifficulty] = useState(false);
   const [taskOpen, setTaskOpen]     = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
   const [showTokens, setShowTokens] = useState(true);
@@ -434,6 +436,7 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack }: Exerc
   const check = useCallback(() => {
     if (isCorrect) {
       setFb("correct"); setSolved(true); setCaseHint(null);
+      if (topicId === "custom") setTimeout(() => setShowDifficulty(true), 600);
       setTimeout(() => setFb(null), 2000);
     } else {
       const cm = getCaseMistake(code, ex?.solution ?? "");
@@ -514,6 +517,7 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack }: Exerc
     return (
       <>
         <style>{STYLES}</style>
+        <DifficultyModal isOpen={showDifficulty} onRate={(level: ExerciseDifficulty) => { rateDifficulty(ex.id, level); setShowDifficulty(false); }} onSkip={() => setShowDifficulty(false)} />
         {showOnboarding && <OnboardingModal onDone={() => setShowOnboarding(false)} />}
 
         {/* Hint toast */}
@@ -696,6 +700,7 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack }: Exerc
   return (
     <>
       <style>{STYLES}</style>
+      <DifficultyModal isOpen={showDifficulty} onRate={(level: ExerciseDifficulty) => { rateDifficulty(ex.id, level); setShowDifficulty(false); }} onSkip={() => setShowDifficulty(false)} />
       {showOnboarding && <OnboardingModal onDone={() => setShowOnboarding(false)} />}
       {showChipSheet  && <ChipModeSheet  onChoice={enterFullscreen} />}
 
