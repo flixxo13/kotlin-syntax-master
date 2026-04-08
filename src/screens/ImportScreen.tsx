@@ -93,23 +93,35 @@ function validateBlocks(text: string): ValidationResult[] {
 
   try {
     let parsed = JSON.parse(jsonString);
-    if (!Array.isArray(parsed)) throw new Error("JSON muss ein Array sein.");
-    rawItems = parsed.map((item, i) => ({ data: item, index: i }));
+    if (!Array.isArray(parsed)) {
+      if (typeof parsed === 'object' && parsed !== null) parsed = [parsed];
+      else throw new Error("JSON muss ein Array oder Objekt sein.");
+    }
+    rawItems = parsed.map((item: any, i: number) => ({ data: item, index: i }));
     isJson = true;
   } catch (e1) {
     const start = text.indexOf('[');
     const end = text.lastIndexOf(']');
-    if (start !== -1 && end !== -1 && start < end) {
-      try {
+    const startObj = text.indexOf('{');
+    const endObj = text.lastIndexOf('}');
+    
+    try {
+      if (start !== -1 && end !== -1 && start < end) {
         let parsed = JSON.parse(text.substring(start, end + 1));
-        if (!Array.isArray(parsed)) throw new Error("JSON muss ein Array sein.");
-        rawItems = parsed.map((item, i) => ({ data: item, index: i }));
+        if (!Array.isArray(parsed)) throw new Error("JSON Array erwartet.");
+        rawItems = parsed.map((item: any, i: number) => ({ data: item, index: i }));
         isJson = true;
-      } catch (e2) {
-        jsonParseError = e2 instanceof Error ? e2.message : String(e2);
+      } else if (startObj !== -1 && endObj !== -1 && startObj < endObj) {
+        let parsed = JSON.parse(text.substring(startObj, endObj + 1));
+        if (typeof parsed !== 'object' || parsed === null) throw new Error("JSON Objekt erwartet.");
+        rawItems = [{ data: parsed, index: 0 }];
+        isJson = true;
+      } else {
+        throw new Error("Kein JSON gefunden.");
       }
-    } else {
-        jsonParseError = e1 instanceof Error ? e1.message : String(e1);
+    } catch (e2) {
+      jsonParseError = e2 instanceof Error ? e2.message : String(e2);
+      if (!jsonParseError) jsonParseError = e1 instanceof Error ? e1.message : String(e1);
     }
   }
 
