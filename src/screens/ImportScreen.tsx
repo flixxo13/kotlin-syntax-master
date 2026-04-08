@@ -54,7 +54,7 @@ function parseRawBlocks(text: string): Array<{ data: Record<string, string>; ind
     'ZIELCODE', 'BAUSTEINE_RICHTIG', 'BAUSTEINE_DISTRAKTOR', 'BAUSTEIN_MAP',
   ];
 
-  const blocks = text.split('---').map(b => b.trim()).filter(b => b.length > 0);
+  const blocks = text.split(/---/).map(b => b.trim()).filter(b => b.length > 0);
 
   return blocks.map((block, index) => {
     const lines = block.split('\n');
@@ -64,12 +64,14 @@ function parseRawBlocks(text: string): Array<{ data: Record<string, string>; ind
     let inCode = false;
 
     lines.forEach(line => {
-      const keyMatch = line.match(/^([A-Z0-9_]+):/);
+      // Robust Regex: Erlaubt optionales Markdown ** vor und nach dem Key (z.B. **ID:**)
+      const keyMatch = line.trim().match(/^(?:\*\*)?([A-Z0-9_]+)(?:\*\*)?\s*:/);
       const isKnown = keyMatch && KNOWN_KEYS.includes(keyMatch[1]);
+      
       if (keyMatch && (isKnown || !inCode)) {
         if (currentKey) data[currentKey] = currentContent.join('\n').trim();
         currentKey = keyMatch[1];
-        const first = line.replace(keyMatch[0], '').trim();
+        const first = line.trim().substring(keyMatch[0].length).trim();
         currentContent = first ? [first] : [];
         inCode = false;
       } else {
@@ -84,64 +86,7 @@ function parseRawBlocks(text: string): Array<{ data: Record<string, string>; ind
 
 // ─── VALIDATOR ────────────────────────────────────────────────────────────────
 function validateBlocks(text: string): ValidationResult[] {
-  let rawItems: any[] = [];
-  let isJson = false;
-  let jsonParseError = "";
-
-  let jsonString = text.trim();
-  jsonString = jsonString.replace(/^```[a-z]*\s*/i, '').replace(/```\s*$/, '').trim();
-
-  try {
-    let parsed = JSON.parse(jsonString);
-    if (!Array.isArray(parsed)) {
-      if (typeof parsed === 'object' && parsed !== null) parsed = [parsed];
-      else throw new Error("JSON muss ein Array oder Objekt sein.");
-    }
-    rawItems = parsed.map((item: any, i: number) => ({ data: item, index: i }));
-    isJson = true;
-  } catch (e1) {
-    const start = text.indexOf('[');
-    const end = text.lastIndexOf(']');
-    const startObj = text.indexOf('{');
-    const endObj = text.lastIndexOf('}');
-    
-    try {
-      if (start !== -1 && end !== -1 && start < end) {
-        let parsed = JSON.parse(text.substring(start, end + 1));
-        if (!Array.isArray(parsed)) throw new Error("JSON Array erwartet.");
-        rawItems = parsed.map((item: any, i: number) => ({ data: item, index: i }));
-        isJson = true;
-      } else if (startObj !== -1 && endObj !== -1 && startObj < endObj) {
-        let parsed = JSON.parse(text.substring(startObj, endObj + 1));
-        if (typeof parsed !== 'object' || parsed === null) throw new Error("JSON Objekt erwartet.");
-        rawItems = [{ data: parsed, index: 0 }];
-        isJson = true;
-      } else {
-        throw new Error("Kein JSON gefunden.");
-      }
-    } catch (e2) {
-      jsonParseError = e2 instanceof Error ? e2.message : String(e2);
-      if (!jsonParseError) jsonParseError = e1 instanceof Error ? e1.message : String(e1);
-    }
-  }
-
-  if (!isJson) {
-    if (text.trim().startsWith('[') || text.trim().startsWith('{') || text.trim().startsWith('```json')) {
-      return [{
-        id: "JSON Format Fehler",
-        status: "invalid",
-        errors: [
-          `Syntax-Fehler: ${jsonParseError || 'Unbekannt'}`,
-          "Die KI hat vermutlich ungültiges JSON produziert (z.B. unescapte Zeilenumbrüche in Strings)."
-        ],
-        warnings: [],
-        task: null,
-        rawData: {}
-      }];
-    }
-    rawItems = parseRawBlocks(text);
-  }
-
+  let rawItems = parseRawBlocks(text);
   const seenIds = new Map<string, boolean>();
 
   return rawItems.map(({ data, index }) => {
@@ -151,55 +96,6 @@ function validateBlocks(text: string): ValidationResult[] {
     // Fallback UI mapping helper
     const rawData = { ...data };
 
-    if (isJson) {
-      if (!data.id) errors.push('Kein ID (id)');
-      if (!data.mode) errors.push('Kein Modus (mode)');
-      if (!data.conceptId) errors.push('Kein Thema (conceptId)');
-      if (!data.task) errors.push('Keine Beschreibung (task)');
-      if (!data.solution) errors.push('Lösung (solution) fehlt');
-      if (!data.hints?.level1) errors.push('Hint 1 (hints.level1) fehlt');
-      if (!data.hints?.level2) errors.push('Hint 2 (hints.level2) fehlt');
-      if (!data.hints?.level3) errors.push('Hint 3 (hints.level3) fehlt');
-
-      if (data.id) {
-        if (seenIds.has(data.id)) errors.push(`Doppelte ID '${data.id}'`);
-        seenIds.set(data.id, true);
-      }
-
-      // Map to UI expectations for preview
-      rawData['ID'] = data.id || '';
-      rawData['MODUS'] = data.mode === 'assignment' ? 'ZUORDNUNG' : 'SYNTAX_BUILDER';
-      rawData['THEMA'] = data.conceptId || '';
-      rawData['BESCHREIBUNG'] = data.task || '';
-      rawData['STARTCODE'] = data.initialCode || '';
-      rawData['LOESUNG'] = data.solution || '';
-      rawData['HINT1_STRUKTUR'] = data.hints?.level1 || '';
-      rawData['HINT2_ANKER'] = data.hints?.level2 || '';
-      rawData['HINT3_KONTEXT'] = data.hints?.level3 || '';
-
-      const status: ValidationStatus = errors.length > 0 ? 'invalid' : warnings.length > 0 ? 'warning' : 'valid';
-      let task: Exercise | null = null;
-
-      if (errors.length === 0) {
-        task = {
-          id: data.id,
-          conceptId: data.conceptId,
-          mode: data.mode === 'assignment' ? 'assignment' : 'builder',
-          task: data.task,
-          initialCode: data.initialCode || '',
-          solution: data.solution || '',
-          hints: {
-            level1: data.hints?.level1 || '',
-            level2: data.hints?.level2 || '',
-            level3: data.hints?.level3 || '',
-          },
-          ...(data.assignmentData ? { assignmentData: data.assignmentData } : {})
-        };
-      }
-      return { id: data.id || `Block ${index + 1}`, status, errors, warnings, task, rawData };
-    }
-
-    // ORIGINAL TEXT PARSER LOGIC
     const id = data['ID'] || `Block ${index + 1}`;
     const modus = data['MODUS'] || '';
     const isZuordnung = modus === 'ZUORDNUNG';
@@ -221,7 +117,7 @@ function validateBlocks(text: string): ValidationResult[] {
       if (!data['LOESUNG'])        errors.push('LOESUNG fehlt');
 
       if (data['HINT1_STRUKTUR'] && data['LOESUNG']) {
-        const cleanSol = data['LOESUNG'].replace(/```kotlin/g, '').replace(/```/g, '').trim();
+        const cleanSol = data['LOESUNG'].replace(/```[a-zA-Z]*\n?/g, '').replace(/```/g, '').trim();
         const solWords = cleanSol.split(/\s+/).filter(Boolean).length;
         const dots = (data['HINT1_STRUKTUR'].match(/\.\.\./g) || []).length;
         if (dots > 0 && Math.abs(dots - solWords) > 2) {
@@ -230,8 +126,8 @@ function validateBlocks(text: string): ValidationResult[] {
       }
 
       if (data['STARTCODE'] && data['LOESUNG']) {
-        const cs = data['STARTCODE'].replace(/```kotlin/g, '').replace(/```/g, '').trim();
-        const cl = data['LOESUNG'].replace(/```kotlin/g, '').replace(/```/g, '').trim();
+        const cs = data['STARTCODE'].replace(/```[a-zA-Z]*\n?/g, '').replace(/```/g, '').trim();
+        const cl = data['LOESUNG'].replace(/```[a-zA-Z]*\n?/g, '').replace(/```/g, '').trim();
         if (cs && cl && cs === cl) warnings.push('Startcode entspricht Lösung');
       }
     } else {
@@ -243,7 +139,12 @@ function validateBlocks(text: string): ValidationResult[] {
     const status: ValidationStatus = errors.length > 0 ? 'invalid' : warnings.length > 0 ? 'warning' : 'valid';
     let task: Exercise | null = null;
     if (errors.length === 0) {
-      const cleanCode = (c: string) => c ? c.replace(/^```kotlin\s*/i, '').replace(/```$/, '').trim() : '';
+      // Very strict code cleaning
+      const cleanCode = (c: string) => {
+        if (!c) return '';
+        return c.replace(/```[a-zA-Z]*\n?/g, '').replace(/```/g, '').trim();
+      };
+      
       task = {
         id: data['ID'],
         conceptId: data['THEMA'],
@@ -267,41 +168,26 @@ const KI_PROMPT = `Du bist ein Senior Kotlin Developer und erstellst interaktive
 Generiere 5 voneinander unabhängige Kotlin-Übungen zum Thema: [DEIN THEMA HIER]
 
 REGELN FÜR DIE GENERIERUNG:
-1. Formatiere die Ausgabe AUSSCHLIESSLICH als ein gültiges JSON-Array aus Objekten \`[ { ... }, { ... } ]\`.
-2. Keine Begrüßung, keine Erklärungen, absolut KEIN Markdown (wie \`\`\`json) um das JSON herum.
-3. Nur Übungen im "builder" Modus generieren.
-4. Bei solution und hints keinen Markdown Text produzieren, sondern puren Code.
-5. ZEILENUMBRÜCHE: Ersetze alle echten Zeilenumbrüche in Strings durch "\\n".
-6. QUOTES ESCAPEN (KRITISCH): Wenn dein Kotlin-Code doppelte Anführungszeichen enthält, MÜSSEN diese zwingend escaped werden (z.B. \\"Kotlin\\"). Andernfalls ist das JSON fehlerhaft!
-STRUKTUR JEDES OBJEKTS IM ARRAY:
-{
-  "id": "Einzigartige ID (z.B. var_01)",
-  "conceptId": "Das exakte Kotlin-Thema (z.B. Variablen)",
-  "mode": "builder",
-  "task": "Klare, kurze Aufgabenstellung auf Deutsch.",
-  "initialCode": "Startcode für den Editor (oft leer).",
-  "solution": "Die korrekte Kotlin-Lösung.",
-  "hints": {
-    "level1": "Die grobe Struktur (viel mit ... ersetzt).",
-    "level2": "Einige Keywords / Ankerpunkte sichtbar.",
-    "level3": "Fast die gesamte Lösung, markiere die exakt gesuchte Stelle mit ___."
-  }
-}
+1. Nutze exakt das unten stehende Textformat. Jede Aufgabe wird durch --- getrennt.
+2. Keine Begrüßung, keine Erklärungen. Gib nur die Datenblätter zurück.
+3. Nur Übungen im "SYNTAX_BUILDER" Modus generieren.
+4. Schreibe bei Code-Blöcken reinen Kotlin-Code (Du kannst Markdown-Backticks weglassen).
 
-BEISPIEL-OBJEKT:
-{
-  "id": "var_01",
-  "conceptId": "Variablen",
-  "mode": "builder",
-  "task": "Deklariere eine read-only Variable namens 'name' mit dem Wert 'Kotlin'.",
-  "initialCode": "",
-  "solution": "val name = \\"Kotlin\\"",
-  "hints": {
-    "level1": "... ... = ...",
-    "level2": "val name = ...",
-    "level3": "___ name = \\"Kotlin\\" // Keyword gesucht (val oder var?)"
-  }
-}`;
+STRUKTUR DER AUFGABE:
+---
+ID: [Eindeutige ID, z.B. var_01]
+MODUS: SYNTAX_BUILDER
+THEMA: [Exaktes Kotlin-Thema, z.B. Variablen]
+BESCHREIBUNG: [Klare, kurze Aufgabenstellung]
+STARTCODE:
+[Startcode, falls nötig]
+HINT1_STRUKTUR: [Grobe Struktur mit ... ]
+HINT2_ANKER: [Einige Keywords sichtbar]
+HINT3_KONTEXT:
+[Fast die ganze Lösung, markiere exakte Lücke mit ___]
+LOESUNG:
+[Die korrekte Kotlin-Lösung]
+---`;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // IMPORT SCREEN
@@ -391,12 +277,12 @@ export const ImportScreen = () => {
 
   const handleDownload = () => {
     if (customTasks.length === 0) return;
-    const jsonStr = JSON.stringify(customTasks, null, 2);
-    const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+    const txtBlocks = customTasks.map(t => exerciseToText(t)).join('\n\n---\n\n');
+    const blob = new Blob([txtBlocks], { type: 'text/plain;charset=utf-8' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    a.download = `kotlin-master-aufgaben-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `kotlin-master-aufgaben-${new Date().toISOString().slice(0, 10)}.txt`;
     a.click();
     URL.revokeObjectURL(url);
     showToast(`${customTasks.length} Aufgaben exportiert!`);
@@ -575,7 +461,7 @@ export const ImportScreen = () => {
                 <textarea
                   value={inputText}
                   onChange={e => setInputText(e.target.value)}
-                  placeholder={'[\n  {\n    "id": "b_01",\n    "conceptId": "Variablen",\n    "mode": "builder",\n    "task": "Deklariere ..."\n  }\n]'}
+                  placeholder={'ID: b_01\nMODUS: SYNTAX_BUILDER\nTHEMA: Variablen\nBESCHREIBUNG: Deklariere ...\nSTARTCODE:\nval x = ...\nLOESUNG:\nval x = 1'}
                   className="w-full h-48 bg-surface-2 border border-surface-2 rounded-xl p-4 font-mono text-xs focus:ring-2 focus:ring-primary outline-none resize-none text-white"
                 />
               </div>
