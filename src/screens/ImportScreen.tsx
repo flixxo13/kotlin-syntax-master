@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLearningStore } from '../store/useLearningStore';
-import { parseTasks, exerciseToText } from '../services/taskParser';
+import { parseTasks, exerciseToText, validateBlocks, ValidationResult } from '../services/taskParser';
 import { Exercise } from '../types';
 import { ConfirmModal } from '../components/ui/ConfirmModal';
 import {
@@ -12,15 +12,6 @@ import {
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type View = 'list' | 'import' | 'preview' | 'editor';
 type ValidationStatus = 'valid' | 'warning' | 'invalid';
-
-interface ValidationResult {
-  id: string;
-  status: ValidationStatus;
-  errors: string[];
-  warnings: string[];
-  task: Exercise | null;
-  rawData: Record<string, string>;
-}
 
 interface Toast {
   msg: string;
@@ -46,186 +37,28 @@ const emptyTask = (): Exercise => ({
   hints: { level1: '', level2: '', level3: '' },
 });
 
-// ─── RAW PARSER (for validation preview) ─────────────────────────────────────
-function parseRawBlocks(text: string): Array<{ data: Record<string, string>; index: number }> {
-  const KNOWN_KEYS = [
-    'ID', 'MODUS', 'THEMA', 'BESCHREIBUNG', 'STARTCODE',
-    'HINT1_STRUKTUR', 'HINT2_ANKER', 'HINT3_KONTEXT', 'LOESUNG',
-    'ZIELCODE', 'BAUSTEINE_RICHTIG', 'BAUSTEINE_DISTRAKTOR', 'BAUSTEIN_MAP',
-  ];
-
-  // Extrem robuster Split: Wir trennen bei "---" UND bei jedem "ID:" am Zeilenanfang
-  let markedText = text.replace(/^(?:\*\*)?ID(?:\*\*)?\s*:/gim, '___SPLIT___$&');
-  markedText = markedText.replace(/^---/gim, '___SPLIT___');
-  markedText = markedText.replace(/^___/gim, '___SPLIT___');
-  markedText = markedText.replace(/^\*\*\*/gim, '___SPLIT___');
-
-  const blocks = markedText.split('___SPLIT___').map(b => b.trim()).filter(b => b.length > 0);
-
-  const parsedBlocks = blocks.map((block, index) => {
-    const lines = block.split('\n');
-    const data: Record<string, string> = {};
-    let currentKey = '';
-    let currentContent: string[] = [];
-    let inCode = false;
-
-    lines.forEach(line => {
-      // Robust Regex: Erlaubt optionales Markdown ** vor und nach dem Key (z.B. **ID:** oder **ID**: )
-      const keyMatch = line.trim().match(/^(?:\*\*)?([A-Z0-9_]+)(?:\*\*)?\s*:/);
-      const isKnown = keyMatch && KNOWN_KEYS.includes(keyMatch[1]);
-      
-      if (keyMatch && (isKnown || !inCode)) {
-        if (currentKey) data[currentKey] = currentContent.join('\n').trim();
-        currentKey = keyMatch[1];
-        const first = line.trim().substring(keyMatch[0].length).trim();
-        currentContent = first ? [first] : [];
-        inCode = false;
-      } else {
-        if (line.trim().startsWith('```')) inCode = !inCode;
-        currentContent.push(line);
-      }
-    });
-    if (currentKey) data[currentKey] = currentContent.join('\n').trim();
-    return { data, index };
-  });
-
-  // Filter out any conversational garbage blocks that didn't contain any valid task keys
-  return parsedBlocks.filter(b => Object.keys(b.data).length > 0);
-}
-
-// ─── VALIDATOR ────────────────────────────────────────────────────────────────
-function validateBlocks(text: string): ValidationResult[] {
-  let rawItems = parseRawBlocks(text);
-  const seenIds = new Map<string, boolean>();
-
-  return rawItems.map(({ data, index }) => {
-    const errors: string[] = [];
-    const warnings: string[] = [];
-    
-    // Fallback UI mapping helper
-    const rawData = { ...data };
-
-    const id = data['ID'] || `Block ${index + 1}`;
-    const modus = data['MODUS'] || '';
-    const isZuordnung = modus === 'ZUORDNUNG';
-
-    if (!data['ID'])           errors.push('Kein ID');
-    if (!data['MODUS'])        errors.push('Kein MODUS');
-    if (!data['THEMA'])        errors.push('Kein THEMA');
-    if (!data['BESCHREIBUNG']) errors.push('Keine BESCHREIBUNG');
-
-    if (data['ID']) {
-      if (seenIds.has(data['ID'])) errors.push(`Doppelte ID '${data['ID']}'`);
-      seenIds.set(data['ID'], true);
-    }
-
-    if (!isZuordnung) {
-      if (!data['HINT1_STRUKTUR']) errors.push('HINT1_STRUKTUR fehlt');
-      if (!data['HINT2_ANKER'])    errors.push('HINT2_ANKER fehlt');
-      if (!data['HINT3_KONTEXT'])  errors.push('HINT3_KONTEXT fehlt');
-      if (!data['LOESUNG'])        errors.push('LOESUNG fehlt');
-
-      if (data['HINT1_STRUKTUR'] && data['LOESUNG']) {
-        const cleanSol = data['LOESUNG'].replace(/```[a-zA-Z]*\n?/g, '').replace(/```/g, '').trim();
-        const solWords = cleanSol.split(/\s+/).filter(Boolean).length;
-        const dots = (data['HINT1_STRUKTUR'].match(/\.\.\./g) || []).length;
-        if (dots > 0 && Math.abs(dots - solWords) > 2) {
-          warnings.push(`Hint1 hat ${dots} Punkte, Lösung ~${solWords} Tokens`);
-        }
-      }
-
-      if (data['STARTCODE'] && data['LOESUNG']) {
-        const cs = data['STARTCODE'].replace(/```[a-zA-Z]*\n?/g, '').replace(/```/g, '').trim();
-        const cl = data['LOESUNG'].replace(/```[a-zA-Z]*\n?/g, '').replace(/```/g, '').trim();
-        if (cs && cl && cs === cl) warnings.push('Startcode entspricht Lösung');
-      }
-    } else {
-      if (!data['ZIELCODE'])          errors.push('ZIELCODE fehlt');
-      if (!data['BAUSTEINE_RICHTIG']) errors.push('BAUSTEINE_RICHTIG fehlt');
-      if (!data['BAUSTEIN_MAP'])      errors.push('BAUSTEIN_MAP fehlt');
-    }
-
-    const status: ValidationStatus = errors.length > 0 ? 'invalid' : warnings.length > 0 ? 'warning' : 'valid';
-    let task: Exercise | null = null;
-    if (errors.length === 0) {
-      // Very strict code cleaning
-      const cleanCode = (c: string) => {
-        if (!c) return '';
-        return c.replace(/```[a-zA-Z]*\n?/g, '').replace(/```/g, '').trim();
-      };
-      
-      task = {
-        id: data['ID'],
-        conceptId: data['THEMA'],
-        mode: isZuordnung ? 'assignment' : 'builder',
-        task: data['BESCHREIBUNG'],
-        initialCode: cleanCode(data['STARTCODE'] || ''),
-        solution: cleanCode(data['LOESUNG'] || ''),
-        hints: {
-          level1: data['HINT1_STRUKTUR'] || '',
-          level2: data['HINT2_ANKER'] || '',
-          level3: cleanCode(data['HINT3_KONTEXT'] || ''),
-        },
-      };
-    }
-    return { id, status, errors, warnings, task, rawData: data };
-  });
-}
-
 // ─── KI PROMPT TEMPLATE ───────────────────────────────────────────────────────
-const KI_PROMPT = `Du bist ein Senior Kotlin Developer und erstellst interaktive Lernaufgaben für Anfänger.
-Generiere 5 voneinander unabhängige Kotlin-Übungen zum Thema: [DEIN THEMA HIER]
+const KI_PROMPT = `Generiere 5 Kotlin-Übungen im SYNTAX_BUILDER Format.
+Thema: [DEIN THEMA hier einsetzen]
 
-REGELN FÜR DIE GENERIERUNG:
-1. Nutze exakt das unten stehende Textformat. Jede Aufgabe wird durch --- getrennt.
-2. Keine Begrüßung, keine Erklärungen. Gib nur die Datenblätter zurück.
-3. Nur Übungen im "SYNTAX_BUILDER" Modus generieren.
-4. Schreibe bei Code-Blöcken reinen Kotlin-Code (Du kannst Markdown-Backticks weglassen).
-
-STRUKTUR DER AUFGABE:
----
-ID: [Eindeutige ID, z.B. var_01]
+Format:
+ID: b_XX
 MODUS: SYNTAX_BUILDER
-THEMA: [Exaktes Kotlin-Thema, z.B. Variablen]
-BESCHREIBUNG: [Klare, kurze Aufgabenstellung]
+THEMA: ...
+BESCHREIBUNG: ...
 STARTCODE:
-[Startcode, falls nötig]
-HINT1_STRUKTUR: [Grobe Struktur mit ... ]
-HINT2_ANKER: [Einige Keywords sichtbar]
+\`\`\`kotlin
+\`\`\`
+HINT1_STRUKTUR: ... ... = ...
+HINT2_ANKER: val name = ...
 HINT3_KONTEXT:
-[Fast die ganze Lösung, markiere exakte Lücke mit ___]
+\`\`\`kotlin
+___ name = ... // Keyword gesucht
+\`\`\`
 LOESUNG:
-[Die korrekte Kotlin-Lösung]
----
-
-BEISPIEL 1:
----
-ID: var_01
-MODUS: SYNTAX_BUILDER
-THEMA: Variablen
-BESCHREIBUNG: Deklariere eine unveränderliche Variable namens 'name' mit dem Wert "Kotlin".
-STARTCODE:
-
-HINT1_STRUKTUR: ... ... = "..."
-HINT2_ANKER: val name = "..."
-HINT3_KONTEXT: ___ name = "Kotlin"
-LOESUNG:
+\`\`\`kotlin
 val name = "Kotlin"
----
-
-BEISPIEL 2:
----
-ID: loop_01
-MODUS: SYNTAX_BUILDER
-THEMA: Schleifen
-BESCHREIBUNG: Schreibe eine for-Schleife, die von 1 bis 5 zählt (inklusive) und 'i' druckt.
-STARTCODE:
-
-HINT1_STRUKTUR: ... (i ... 1...5) { println(i) }
-HINT2_ANKER: for (i in 1...5) { println(i) }
-HINT3_KONTEXT: for (i in 1 ___ 5) { println(i) }
-LOESUNG:
-for (i in 1..5) { println(i) }
+\`\`\`
 ---`;
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -316,8 +149,8 @@ export const ImportScreen = () => {
 
   const handleDownload = () => {
     if (customTasks.length === 0) return;
-    const txtBlocks = customTasks.map(t => exerciseToText(t)).join('\n\n---\n\n');
-    const blob = new Blob([txtBlocks], { type: 'text/plain;charset=utf-8' });
+    const text = customTasks.map(exerciseToText).join('\n---\n');
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
@@ -440,7 +273,7 @@ export const ImportScreen = () => {
                       onClick={handleDownload}
                       className="flex-1 py-3 rounded-xl border border-primary/30 text-primary text-sm font-bold flex items-center justify-center gap-2 active:scale-95 transition-transform"
                     >
-                      <Download className="w-4 h-4" /> Als .json speichern
+                      <Download className="w-4 h-4" /> Als .txt speichern
                     </button>
                     <button
                       onClick={() => setConfirmDeleteAll(true)}
@@ -500,7 +333,7 @@ export const ImportScreen = () => {
                 <textarea
                   value={inputText}
                   onChange={e => setInputText(e.target.value)}
-                  placeholder={'ID: b_01\nMODUS: SYNTAX_BUILDER\nTHEMA: Variablen\nBESCHREIBUNG: Deklariere ...\nSTARTCODE:\nval x = ...\nLOESUNG:\nval x = 1'}
+                  placeholder={"ID: b_01\nMODUS: SYNTAX_BUILDER\nTHEMA: Variablen\n...\n---\nID: b_02\n..."}
                   className="w-full h-48 bg-surface-2 border border-surface-2 rounded-xl p-4 font-mono text-xs focus:ring-2 focus:ring-primary outline-none resize-none text-white"
                 />
               </div>
@@ -596,10 +429,10 @@ export const ImportScreen = () => {
                 {showGuide && (
                   <div className="px-4 pb-4 space-y-3 text-xs text-text-secondary">
                     <div className="bg-surface-2 rounded-lg p-3 font-mono text-[10px] leading-relaxed">
-                      {`[\n  {\n    "id": "var_01",\n    "conceptId": "Variablen",\n    "mode": "builder",\n    "task": "Deklariere x",\n    "initialCode": "",\n    "solution": "val x = 1",\n    "hints": { ... }\n  }\n]`}
+                      {`ID: b_01\nMODUS: SYNTAX_BUILDER\nTHEMA: Variablen\nBESCHREIBUNG: ...\nSTARTCODE:\n\`\`\`kotlin\n\n\`\`\`\nHINT1_STRUKTUR: ... ... = ...\nHINT2_ANKER: val name = ...\nHINT3_KONTEXT:\n\`\`\`kotlin\n___ name = "..." // Keyword?\n\`\`\`\nLOESUNG:\n\`\`\`kotlin\nval name = "Kotlin"\n\`\`\``}
                     </div>
-                    <p>JSON Array mit Exercise-Objekten übergeben.</p>
-                    <p>Der alte Text-Format-Parser funktioniert weiterhin als Fallback für alte Backups.</p>
+                    <p>Mehrere Aufgaben mit <code className="bg-surface-2 px-1 rounded">---</code> trennen.</p>
+                    <p>Doppelte IDs werden erkannt und als Fehler markiert.</p>
                   </div>
                 )}
               </div>
