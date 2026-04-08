@@ -183,7 +183,7 @@ function FilterSheet({ diff, sort, onDiff, onSort, onClose }: {
       <motion.div
         initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] z-50 bg-surface rounded-t-2xl border border-surface-2 p-5 pb-10"
+        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] z-50 bg-surface rounded-t-2xl border border-surface-2 p-5 pb-16 overflow-y-auto" style={{ maxHeight: "75vh" }}
       >
         <div className="w-9 h-1 bg-surface-2 rounded-full mx-auto mb-5" />
 
