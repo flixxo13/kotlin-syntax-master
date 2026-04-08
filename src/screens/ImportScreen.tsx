@@ -9,8 +9,7 @@ import {
   Edit2, Plus, ArrowLeft, Eye, Save, ChevronDown, ChevronUp, Copy
 } from 'lucide-react';
 
-// ─── TYPES ✗ Syntax-Fehler: Expected ',' or '}' after property value in JSON at position 221 (line 8 column 34)
-✗ Die KI hat vermutlich ungültiges JSON produziert (z.B. unescapte Zeilenumbrüche in Strings). ────────────────────────────────────────────────────────────────────
+// ─── TYPES ────────────────────────────────────────────────────────────────────
 type View = 'list' | 'import' | 'preview' | 'editor';
 type ValidationStatus = 'valid' | 'warning' | 'invalid';
 
@@ -257,11 +256,11 @@ Generiere 5 voneinander unabhängige Kotlin-Übungen zum Thema: [DEIN THEMA HIER
 
 REGELN FÜR DIE GENERIERUNG:
 1. Formatiere die Ausgabe AUSSCHLIESSLICH als ein gültiges JSON-Array aus Objekten \`[ { ... }, { ... } ]\`.
-2. Keine Begrüßung, keine Erklärungen, absolut KEIN Markdown (wie \`\`\`json) um das JSON herum, gib reines JSON zurück!
+2. Keine Begrüßung, keine Erklärungen, absolut KEIN Markdown (wie \`\`\`json) um das JSON herum.
 3. Nur Übungen im "builder" Modus generieren.
-4. Bei solution und hints keinen Markdown Text wie \`\`\`kotlin produzieren, sondern puren Code.
-5. SEHR WICHTIG: Ersetze alle echten Zeilenumbrüche innerhalb der JSON-Strings streng durch "\\n"! JSON verbietet echte Zeilenumbrüche in Werten.
-
+4. Bei solution und hints keinen Markdown Text produzieren, sondern puren Code.
+5. ZEILENUMBRÜCHE: Ersetze alle echten Zeilenumbrüche in Strings durch "\\n".
+6. QUOTES ESCAPEN (KRITISCH): Wenn dein Kotlin-Code doppelte Anführungszeichen enthält, MÜSSEN diese zwingend escaped werden (z.B. \\"Kotlin\\"). Andernfalls ist das JSON fehlerhaft!
 STRUKTUR JEDES OBJEKTS IM ARRAY:
 {
   "id": "Einzigartige ID (z.B. var_01)",
