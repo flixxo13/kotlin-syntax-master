@@ -38,7 +38,7 @@ const emptyTask = (): Exercise => ({
 });
 
 // ─── KI PROMPT TEMPLATE ───────────────────────────────────────────────────────
-const KI_PROMPT = "Du bist ein Senior Kotlin Developer und erstellst interaktive Lernaufgaben für Anfänger.
+const KI_PROMPT = 'Du bist ein Senior Kotlin Developer und erstellst interaktive Lernaufgaben für Anfänger.
 Generiere 5 voneinander unabhängige Kotlin-Übungen zum Thema: [DEIN THEMA HIER]
 
 REGELN FÜR DIE GENERIERUNG:
@@ -91,7 +91,7 @@ HINT2_ANKER: for (i in 1...5) { println(i) }
 HINT3_KONTEXT: for (i in 1 ___ 5) { println(i) }
 LOESUNG:
 for (i in 1..5) { println(i) }
---- "
+--- '
 // ═══════════════════════════════════════════════════════════════════════════════
 // IMPORT SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
