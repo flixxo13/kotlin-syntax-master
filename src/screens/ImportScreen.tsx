@@ -86,34 +86,48 @@ function parseRawBlocks(text: string): Array<{ data: Record<string, string>; ind
 function validateBlocks(text: string): ValidationResult[] {
   let rawItems: any[] = [];
   let isJson = false;
+  let jsonParseError = "";
 
-  // Hilfsfunktion für robusten JSON-Parse (ignoriert Markdown oder Begrüßungstexte der KI)
   let jsonString = text.trim();
   jsonString = jsonString.replace(/^```[a-z]*\s*/i, '').replace(/```\s*$/, '').trim();
 
   try {
     let parsed = JSON.parse(jsonString);
-    if (!Array.isArray(parsed)) throw new Error("Not an array");
+    if (!Array.isArray(parsed)) throw new Error("JSON muss ein Array sein.");
     rawItems = parsed.map((item, i) => ({ data: item, index: i }));
     isJson = true;
   } catch (e1) {
-    // Fallback: Versuche das Array direkt aus dem String zu extrahieren
     const start = text.indexOf('[');
     const end = text.lastIndexOf(']');
     if (start !== -1 && end !== -1 && start < end) {
       try {
         let parsed = JSON.parse(text.substring(start, end + 1));
-        if (!Array.isArray(parsed)) throw new Error("Not an array");
+        if (!Array.isArray(parsed)) throw new Error("JSON muss ein Array sein.");
         rawItems = parsed.map((item, i) => ({ data: item, index: i }));
         isJson = true;
       } catch (e2) {
-        rawItems = parseRawBlocks(text);
-        isJson = false;
+        jsonParseError = e2 instanceof Error ? e2.message : String(e2);
       }
     } else {
-      rawItems = parseRawBlocks(text);
-      isJson = false;
+        jsonParseError = e1 instanceof Error ? e1.message : String(e1);
     }
+  }
+
+  if (!isJson) {
+    if (text.trim().startsWith('[') || text.trim().startsWith('{') || text.trim().startsWith('```json')) {
+      return [{
+        id: "JSON Format Fehler",
+        status: "invalid",
+        errors: [
+          `Syntax-Fehler: ${jsonParseError || 'Unbekannt'}`,
+          "Die KI hat vermutlich ungültiges JSON produziert (z.B. unescapte Zeilenumbrüche in Strings)."
+        ],
+        warnings: [],
+        task: null,
+        rawData: {}
+      }];
+    }
+    rawItems = parseRawBlocks(text);
   }
 
   const seenIds = new Map<string, boolean>();
@@ -245,6 +259,7 @@ REGELN FÜR DIE GENERIERUNG:
 2. Keine Begrüßung, keine Erklärungen, absolut KEIN Markdown (wie \`\`\`json) um das JSON herum, gib reines JSON zurück!
 3. Nur Übungen im "builder" Modus generieren.
 4. Bei solution und hints keinen Markdown Text wie \`\`\`kotlin produzieren, sondern puren Code.
+5. SEHR WICHTIG: Ersetze alle echten Zeilenumbrüche innerhalb der JSON-Strings streng durch "\\n"! JSON verbietet echte Zeilenumbrüche in Werten.
 
 STRUKTUR JEDES OBJEKTS IM ARRAY:
 {
