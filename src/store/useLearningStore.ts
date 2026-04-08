@@ -118,11 +118,16 @@ export const useLearningStore = create<LearningState>()(
       // ── NEW: Rate difficulty ────────────────────────────────────────────────
       rateDifficulty: (exerciseId, level) => set((state) => {
         const existing = state.progress[exerciseId];
-        if (!existing) return {};
+        // Create minimal entry if not yet in progress (e.g. rated before completeExercise)
+        const base = existing ?? {
+          exerciseId, conceptId: '', completed: true,
+          bestHintLevel: HintLevel.NONE, attempts: 1,
+          lastAttemptAt: new Date().toISOString(), xpEarned: 0,
+        };
         return {
           progress: {
             ...state.progress,
-            [exerciseId]: { ...existing, difficulty: level, lastPracticed: new Date().toISOString() },
+            [exerciseId]: { ...base, difficulty: level, lastPracticed: new Date().toISOString() },
           },
         };
       }),
