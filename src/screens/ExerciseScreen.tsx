@@ -282,7 +282,7 @@ function HighlightTask({ text }: { text: string }) {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack }: ExerciseScreenProps) {
-  const { customTasks, rateDifficulty } = useLearningStore();
+  const { customTasks, rateDifficulty, completeExercise } = useLearningStore();
 
   // ── Build exercise list dynamically ──────────────────────────────────────────
   const EXERCISES: Exercise[] = useMemo(() => {
@@ -436,6 +436,7 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack }: Exerc
   const check = useCallback(() => {
     if (isCorrect) {
       setFb("correct"); setSolved(true); setCaseHint(null);
+      completeExercise(ex.id, ex.conceptId, hl as any);
       if (topicId === "custom") setTimeout(() => setShowDifficulty(true), 600);
       setTimeout(() => setFb(null), 2000);
     } else {
