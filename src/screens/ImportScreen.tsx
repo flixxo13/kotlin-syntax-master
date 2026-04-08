@@ -84,12 +84,80 @@ function parseRawBlocks(text: string): Array<{ data: Record<string, string>; ind
 
 // ─── VALIDATOR ────────────────────────────────────────────────────────────────
 function validateBlocks(text: string): ValidationResult[] {
-  const raw = parseRawBlocks(text);
+  let rawItems: any[] = [];
+  let isJson = false;
+
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) {
+      rawItems = parsed.map((item, i) => ({ data: item, index: i }));
+      isJson = true;
+    } else {
+      throw new Error("Not an array");
+    }
+  } catch (e) {
+    rawItems = parseRawBlocks(text);
+    isJson = false;
+  }
+
   const seenIds = new Map<string, boolean>();
 
-  return raw.map(({ data, index }) => {
+  return rawItems.map(({ data, index }) => {
     const errors: string[] = [];
     const warnings: string[] = [];
+    
+    // Fallback UI mapping helper
+    const rawData = { ...data };
+
+    if (isJson) {
+      if (!data.id) errors.push('Kein ID (id)');
+      if (!data.mode) errors.push('Kein Modus (mode)');
+      if (!data.conceptId) errors.push('Kein Thema (conceptId)');
+      if (!data.task) errors.push('Keine Beschreibung (task)');
+      if (!data.solution) errors.push('Lösung (solution) fehlt');
+      if (!data.hints?.level1) errors.push('Hint 1 (hints.level1) fehlt');
+      if (!data.hints?.level2) errors.push('Hint 2 (hints.level2) fehlt');
+      if (!data.hints?.level3) errors.push('Hint 3 (hints.level3) fehlt');
+
+      if (data.id) {
+        if (seenIds.has(data.id)) errors.push(`Doppelte ID '${data.id}'`);
+        seenIds.set(data.id, true);
+      }
+
+      // Map to UI expectations for preview
+      rawData['ID'] = data.id || '';
+      rawData['MODUS'] = data.mode === 'assignment' ? 'ZUORDNUNG' : 'SYNTAX_BUILDER';
+      rawData['THEMA'] = data.conceptId || '';
+      rawData['BESCHREIBUNG'] = data.task || '';
+      rawData['STARTCODE'] = data.initialCode || '';
+      rawData['LOESUNG'] = data.solution || '';
+      rawData['HINT1_STRUKTUR'] = data.hints?.level1 || '';
+      rawData['HINT2_ANKER'] = data.hints?.level2 || '';
+      rawData['HINT3_KONTEXT'] = data.hints?.level3 || '';
+
+      const status: ValidationStatus = errors.length > 0 ? 'invalid' : warnings.length > 0 ? 'warning' : 'valid';
+      let task: Exercise | null = null;
+
+      if (errors.length === 0) {
+        task = {
+          id: data.id,
+          conceptId: data.conceptId,
+          mode: data.mode === 'assignment' ? 'assignment' : 'builder',
+          task: data.task,
+          initialCode: data.initialCode || '',
+          solution: data.solution || '',
+          hints: {
+            level1: data.hints?.level1 || '',
+            level2: data.hints?.level2 || '',
+            level3: data.hints?.level3 || '',
+          },
+          ...(data.assignmentData ? { assignmentData: data.assignmentData } : {})
+        };
+      }
+      return { id: data.id || `Block ${index + 1}`, status, errors, warnings, task, rawData };
+    }
+
+    // ORIGINAL TEXT PARSER LOGIC
     const id = data['ID'] || `Block ${index + 1}`;
     const modus = data['MODUS'] || '';
     const isZuordnung = modus === 'ZUORDNUNG';
@@ -99,11 +167,8 @@ function validateBlocks(text: string): ValidationResult[] {
     if (!data['THEMA'])        errors.push('Kein THEMA');
     if (!data['BESCHREIBUNG']) errors.push('Keine BESCHREIBUNG');
 
-    // Duplicate ID check
     if (data['ID']) {
-      if (seenIds.has(data['ID'])) {
-        errors.push(`Doppelte ID '${data['ID']}'`);
-      }
+      if (seenIds.has(data['ID'])) errors.push(`Doppelte ID '${data['ID']}'`);
       seenIds.set(data['ID'], true);
     }
 
@@ -113,7 +178,6 @@ function validateBlocks(text: string): ValidationResult[] {
       if (!data['HINT3_KONTEXT'])  errors.push('HINT3_KONTEXT fehlt');
       if (!data['LOESUNG'])        errors.push('LOESUNG fehlt');
 
-      // Hint dot vs solution word count
       if (data['HINT1_STRUKTUR'] && data['LOESUNG']) {
         const cleanSol = data['LOESUNG'].replace(/```kotlin/g, '').replace(/```/g, '').trim();
         const solWords = cleanSol.split(/\s+/).filter(Boolean).length;
@@ -123,7 +187,6 @@ function validateBlocks(text: string): ValidationResult[] {
         }
       }
 
-      // Startcode = solution check
       if (data['STARTCODE'] && data['LOESUNG']) {
         const cs = data['STARTCODE'].replace(/```kotlin/g, '').replace(/```/g, '').trim();
         const cl = data['LOESUNG'].replace(/```kotlin/g, '').replace(/```/g, '').trim();
@@ -135,14 +198,10 @@ function validateBlocks(text: string): ValidationResult[] {
       if (!data['BAUSTEIN_MAP'])      errors.push('BAUSTEIN_MAP fehlt');
     }
 
-    const status: ValidationStatus =
-      errors.length > 0 ? 'invalid' : warnings.length > 0 ? 'warning' : 'valid';
-
-    // Build Exercise object if valid
+    const status: ValidationStatus = errors.length > 0 ? 'invalid' : warnings.length > 0 ? 'warning' : 'valid';
     let task: Exercise | null = null;
     if (errors.length === 0) {
-      const cleanCode = (c: string) =>
-        c ? c.replace(/^```kotlin\s*/i, '').replace(/```$/, '').trim() : '';
+      const cleanCode = (c: string) => c ? c.replace(/^```kotlin\s*/i, '').replace(/```$/, '').trim() : '';
       task = {
         id: data['ID'],
         conceptId: data['THEMA'],
@@ -157,34 +216,49 @@ function validateBlocks(text: string): ValidationResult[] {
         },
       };
     }
-
     return { id, status, errors, warnings, task, rawData: data };
   });
 }
 
 // ─── KI PROMPT TEMPLATE ───────────────────────────────────────────────────────
-const KI_PROMPT = `Generiere 5 Kotlin-Übungen im SYNTAX_BUILDER Format.
-Thema: [DEIN THEMA hier einsetzen]
+const KI_PROMPT = `Du bist ein Senior Kotlin Developer und erstellst interaktive Lernaufgaben für Anfänger.
+Generiere 5 voneinander unabhängige Kotlin-Übungen zum Thema: [DEIN THEMA HIER]
 
-Format:
-ID: b_XX
-MODUS: SYNTAX_BUILDER
-THEMA: ...
-BESCHREIBUNG: ...
-STARTCODE:
-\`\`\`kotlin
-\`\`\`
-HINT1_STRUKTUR: ... ... = ...
-HINT2_ANKER: val name = ...
-HINT3_KONTEXT:
-\`\`\`kotlin
-___ name = ... // Keyword gesucht
-\`\`\`
-LOESUNG:
-\`\`\`kotlin
-val name = "Kotlin"
-\`\`\`
----`;
+REGELN FÜR DIE GENERIERUNG:
+1. Formatiere die Ausgabe AUSSCHLIESSLICH als ein gültiges JSON-Array aus Objekten \`[ { ... }, { ... } ]\`.
+2. Keine Begrüßung, keine Erklärungen, absolut KEIN Markdown (wie \`\`\`json) um das JSON herum, gib reines JSON zurück!
+3. Nur Übungen im "builder" Modus generieren.
+4. Bei solution und hints keinen Markdown Text wie \`\`\`kotlin produzieren, sondern puren Code.
+
+STRUKTUR JEDES OBJEKTS IM ARRAY:
+{
+  "id": "Einzigartige ID (z.B. var_01)",
+  "conceptId": "Das exakte Kotlin-Thema (z.B. Variablen)",
+  "mode": "builder",
+  "task": "Klare, kurze Aufgabenstellung auf Deutsch.",
+  "initialCode": "Startcode für den Editor (oft leer).",
+  "solution": "Die korrekte Kotlin-Lösung.",
+  "hints": {
+    "level1": "Die grobe Struktur (viel mit ... ersetzt).",
+    "level2": "Einige Keywords / Ankerpunkte sichtbar.",
+    "level3": "Fast die gesamte Lösung, markiere die exakt gesuchte Stelle mit ___."
+  }
+}
+
+BEISPIEL-OBJEKT:
+{
+  "id": "var_01",
+  "conceptId": "Variablen",
+  "mode": "builder",
+  "task": "Deklariere eine read-only Variable namens 'name' mit dem Wert 'Kotlin'.",
+  "initialCode": "",
+  "solution": "val name = \\"Kotlin\\"",
+  "hints": {
+    "level1": "... ... = ...",
+    "level2": "val name = ...",
+    "level3": "___ name = \\"Kotlin\\" // Keyword gesucht (val oder var?)"
+  }
+}`;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // IMPORT SCREEN
@@ -274,12 +348,12 @@ export const ImportScreen = () => {
 
   const handleDownload = () => {
     if (customTasks.length === 0) return;
-    const text = customTasks.map(exerciseToText).join('\n---\n');
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const jsonStr = JSON.stringify(customTasks, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    a.download = `kotlin-master-aufgaben-${new Date().toISOString().slice(0, 10)}.txt`;
+    a.download = `kotlin-master-aufgaben-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
     showToast(`${customTasks.length} Aufgaben exportiert!`);
@@ -398,7 +472,7 @@ export const ImportScreen = () => {
                       onClick={handleDownload}
                       className="flex-1 py-3 rounded-xl border border-primary/30 text-primary text-sm font-bold flex items-center justify-center gap-2 active:scale-95 transition-transform"
                     >
-                      <Download className="w-4 h-4" /> Als .txt speichern
+                      <Download className="w-4 h-4" /> Als .json speichern
                     </button>
                     <button
                       onClick={() => setConfirmDeleteAll(true)}
@@ -458,7 +532,7 @@ export const ImportScreen = () => {
                 <textarea
                   value={inputText}
                   onChange={e => setInputText(e.target.value)}
-                  placeholder={"ID: b_01\nMODUS: SYNTAX_BUILDER\nTHEMA: Variablen\n...\n---\nID: b_02\n..."}
+                  placeholder={'[\n  {\n    "id": "b_01",\n    "conceptId": "Variablen",\n    "mode": "builder",\n    "task": "Deklariere ..."\n  }\n]'}
                   className="w-full h-48 bg-surface-2 border border-surface-2 rounded-xl p-4 font-mono text-xs focus:ring-2 focus:ring-primary outline-none resize-none text-white"
                 />
               </div>
@@ -554,10 +628,10 @@ export const ImportScreen = () => {
                 {showGuide && (
                   <div className="px-4 pb-4 space-y-3 text-xs text-text-secondary">
                     <div className="bg-surface-2 rounded-lg p-3 font-mono text-[10px] leading-relaxed">
-                      {`ID: b_01\nMODUS: SYNTAX_BUILDER\nTHEMA: Variablen\nBESCHREIBUNG: ...\nSTARTCODE:\n\`\`\`kotlin\n\n\`\`\`\nHINT1_STRUKTUR: ... ... = ...\nHINT2_ANKER: val name = ...\nHINT3_KONTEXT:\n\`\`\`kotlin\n___ name = "..." // Keyword?\n\`\`\`\nLOESUNG:\n\`\`\`kotlin\nval name = "Kotlin"\n\`\`\``}
+                      {`[\n  {\n    "id": "var_01",\n    "conceptId": "Variablen",\n    "mode": "builder",\n    "task": "Deklariere x",\n    "initialCode": "",\n    "solution": "val x = 1",\n    "hints": { ... }\n  }\n]`}
                     </div>
-                    <p>Mehrere Aufgaben mit <code className="bg-surface-2 px-1 rounded">---</code> trennen.</p>
-                    <p>Doppelte IDs werden erkannt und als Fehler markiert.</p>
+                    <p>JSON Array mit Exercise-Objekten übergeben.</p>
+                    <p>Der alte Text-Format-Parser funktioniert weiterhin als Fallback für alte Backups.</p>
                   </div>
                 )}
               </div>
