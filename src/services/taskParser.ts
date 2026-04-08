@@ -1,83 +1,76 @@
 import { Exercise } from '../types';
 
 export const parseTasks = (text: string): Exercise[] => {
-  const blocks = text.split('---').map(b => b.trim()).filter(b => b.length > 0);
+  let markedText = text.replace(/^(?:\*\*)?ID(?:\*\*)?\s*:/gim, '___SPLIT___$&');
+  markedText = markedText.replace(/^---/gim, '___SPLIT___');
+  markedText = markedText.replace(/^___/gim, '___SPLIT___');
+  markedText = markedText.replace(/^\*\*\*/gim, '___SPLIT___');
+
+  const blocks = markedText.split('___SPLIT___').map(b => b.trim()).filter(b => b.length > 0);
   const exercises: Exercise[] = [];
+
+  const KNOWN_KEYS = [
+    'ID', 'MODUS', 'THEMA', 'BESCHREIBUNG', 'STARTCODE', 
+    'HINT1_STRUKTUR', 'HINT2_ANKER', 'HINT3_KONTEXT', 'LOESUNG',
+    'ZIELCODE', 'BAUSTEINE_RICHTIG', 'BAUSTEINE_DISTRAKTOR', 'BAUSTEIN_MAP'
+  ];
 
   blocks.forEach((block, index) => {
     const lines = block.split('\n');
     const data: Record<string, string> = {};
     let currentKey = '';
     let currentContent: string[] = [];
-    let inCodeBlock = false;
-
-    const KNOWN_KEYS = [
-      'ID', 'MODUS', 'THEMA', 'BESCHREIBUNG', 'STARTCODE', 
-      'HINT1_STRUKTUR', 'HINT2_ANKER', 'HINT3_KONTEXT', 'LOESUNG',
-      'ZIELCODE', 'BAUSTEINE_RICHTIG', 'BAUSTEINE_DISTRAKTOR', 'BAUSTEIN_MAP'
-    ];
+    let inCode = false;
 
     lines.forEach(line => {
-      const keyMatch = line.match(/^([A-Z0-9_]+):/);
-      const isKnownKey = keyMatch && KNOWN_KEYS.includes(keyMatch[1]);
-
-      // We switch keys if we find a known key at the start of a line, 
-      // even if we think we are in a code block (handles unclosed blocks)
-      if (keyMatch && (isKnownKey || !inCodeBlock)) {
-        if (currentKey) {
-          data[currentKey] = currentContent.join('\n').trim();
-        }
+      // Robust Regex: Erlaubt optionales Markdown ** vor und nach dem Key (z.B. **ID:** oder **ID**: )
+      const keyMatch = line.trim().match(/^(?:\*\*)?([A-Z0-9_]+)(?:\*\*)?\s*:/);
+      const isKnown = keyMatch && KNOWN_KEYS.includes(keyMatch[1]);
+      
+      if (keyMatch && (isKnown || !inCode)) {
+        if (currentKey) data[currentKey] = currentContent.join('\n').trim();
         currentKey = keyMatch[1];
-        const firstLineContent = line.replace(keyMatch[0], '').trim();
-        currentContent = firstLineContent ? [firstLineContent] : [];
-        
-        // If we switch keys, we reset the code block state for the new field
-        inCodeBlock = false;
+        const first = line.trim().substring(keyMatch[0].length).trim();
+        currentContent = first ? [first] : [];
+        inCode = false;
       } else {
-        if (line.trim().startsWith('```')) {
-          inCodeBlock = !inCodeBlock;
-        }
+        if (line.trim().startsWith('```')) inCode = !inCode;
         currentContent.push(line);
       }
     });
+    if (currentKey) data[currentKey] = currentContent.join('\n').trim();
 
-    if (currentKey) {
-      data[currentKey] = currentContent.join('\n').trim();
-    }
+    // Ignore conversational garbage blocks with no recognized keys
+    if (Object.keys(data).length === 0) return;
 
-    // Validation
-    const required = ['ID', 'MODUS', 'THEMA', 'BESCHREIBUNG', 'STARTCODE', 'HINT1_STRUKTUR', 'HINT2_ANKER', 'HINT3_KONTEXT'];
-    const missing = required.filter(k => !data[k]);
-    const taskId = data['ID'] || `Block ${index + 1}`;
-
-    if (missing.length > 0) {
-      throw new Error(`Aufgabe '${taskId}' fehlen Felder: ${missing.join(', ')}`);
-    }
-
-    const cleanCode = (code: string) => {
-      if (!code) return '';
-      // Remove opening and closing code fences more robustly
-      return code
-        .replace(/^```kotlin\s*/i, '')
-        .replace(/```$/, '')
-        .trim();
+    const taskId = data['ID'] || `Unbekannte ID (Block ${index + 1})`;
+    
+    // Very strict code cleaning
+    const cleanCode = (c: string) => {
+      if (!c) return '';
+      return c.replace(/```[a-zA-Z]*\n?/g, '').replace(/```/g, '').trim();
     };
 
     const exercise: Exercise = {
-      id: data['ID'],
-      conceptId: data['THEMA'],
+      id: data['ID'] || '',
+      conceptId: data['THEMA'] || '',
       mode: data['MODUS'] === 'ZUORDNUNG' ? 'assignment' : 'builder',
-      task: data['BESCHREIBUNG'],
+      task: data['BESCHREIBUNG'] || '',
       initialCode: cleanCode(data['STARTCODE']),
       solution: data['MODUS'] === 'ZUORDNUNG' ? '' : cleanCode(data['LOESUNG'] || ''),
       hints: {
-        level1: data['HINT1_STRUKTUR'],
-        level2: data['HINT2_ANKER'],
+        level1: data['HINT1_STRUKTUR'] || '',
+        level2: data['HINT2_ANKER'] || '',
         level3: cleanCode(data['HINT3_KONTEXT'])
       }
     };
 
-    if (data['MODUS'] === 'ZUORDNUNG') {
+    const required = ['ID', 'MODUS', 'THEMA', 'BESCHREIBUNG', 'STARTCODE', 'HINT1_STRUKTUR', 'HINT2_ANKER', 'HINT3_KONTEXT'];
+    const missing = required.filter(k => !data[k]);
+
+    if (missing.length > 0 && data['MODUS'] !== 'ZUORDNUNG') {
+      throw new Error(`Aufgabe '${taskId}' fehlen Felder: ${missing.join(', ')}`);
+    } else if (data['MODUS'] === 'ZUORDNUNG') {
       if (!data['ZIELCODE'] || !data['BAUSTEINE_RICHTIG'] || !data['BAUSTEIN_MAP']) {
         throw new Error(`Aufgabe '${taskId}' (ZUORDNUNG) fehlen Pflichtfelder (ZIELCODE, BAUSTEINE_RICHTIG oder BAUSTEIN_MAP).`);
       }
@@ -85,8 +78,10 @@ export const parseTasks = (text: string): Exercise[] => {
       const mapLines = data['BAUSTEIN_MAP'].split('\n');
       const map: Record<string, string> = {};
       mapLines.forEach(l => {
-        const [slot, val] = l.split('->').map(s => s.trim());
-        if (slot && val) map[slot] = val;
+        const parts = l.split('->');
+        if (parts.length === 2) {
+           map[parts[0].trim()] = parts[1].trim();
+        }
       });
 
       exercise.assignmentData = {
