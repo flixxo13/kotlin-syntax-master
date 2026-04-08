@@ -8,8 +8,9 @@ export enum HintLevel {
   REVEALED = 'revealed',
 }
 
-export type SessionMode   = 'builder' | 'assignment' | 'mixed';
-export type SessionLength = 'quick' | 'standard' | 'deep';
+export type SessionMode      = 'builder' | 'assignment' | 'mixed';
+export type SessionLength    = 'quick' | 'standard' | 'deep';
+export type ExerciseDifficulty = 'easy' | 'medium' | 'hard';
 
 // ─── EXERCISE ─────────────────────────────────────────────────────────────────
 export interface Exercise {
