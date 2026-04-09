@@ -145,22 +145,32 @@ function ChipModeSheet({ onChoice }: { onChoice: (enabled: boolean) => void }) {
 // ─── CHIP BAR ─────────────────────────────────────────────────────────────────
 function ChipBar({ chips, solToks, pct, visible }: { chips: any[]; solToks: number; pct: number; visible: boolean }) {
   if (!visible) return null;
+  // Show ">75%" when high but not done – avoids spoiling exact count
+  const pctLabel = pct === 100 ? "100%" : pct >= 75 ? ">75%" : `${pct}%`;
+  const pctColor = pct === 100 ? "#4ade80" : pct >= 75 ? "#a78bfa" : "#6b7280";
+  const barColor = pct === 100 ? "#22c55e" : "#7c3aed";
+  const hasProgress = solToks > 0 && chips.length > 0;
   return (
-    <div style={{ position:"relative", height:36, flexShrink:0, background:"#0a0a10", borderBottom:"1px solid #1e1e2e" }}>
-      <div style={{ position:"absolute", left:0, top:0, bottom:0, width:16, background:"linear-gradient(to right, #0a0a10, transparent)", zIndex:2, pointerEvents:"none" }} />
-      <div style={{ position:"absolute", right:solToks>0&&chips.length>0?68:0, top:0, bottom:0, width:20, background:"linear-gradient(to left, #0a0a10, transparent)", zIndex:2, pointerEvents:"none" }} />
-      <div style={{ display:"flex", alignItems:"center", height:"100%", gap:5, padding:"0 16px", overflowX:"auto", scrollbarWidth:"none" } as any}>
+    <div style={{ position:"relative", flexShrink:0, background:"#0a0a10", borderBottom:"1px solid #1e1e2e" }}>
+      {/* Chips row – scroll to end so last chip always visible */}
+      <div
+        ref={(el) => { if (el) el.scrollLeft = el.scrollWidth; }}
+        style={{ display:"flex", alignItems:"center", height:34, gap:5, padding:"0 8px", paddingRight:hasProgress?72:8, overflowX:"auto", scrollbarWidth:"none", WebkitOverflowScrolling:"touch" } as any}
+      >
+        {/* Fade left edge */}
+        <div style={{ position:"sticky", left:0, width:12, height:"100%", background:"linear-gradient(to right,#0a0a10,transparent)", flexShrink:0, pointerEvents:"none", marginRight:-12, zIndex:2 }} />
         {chips.length === 0
-          ? <span style={{ fontSize:10, fontFamily:"monospace", color:"#2a2a3e", whiteSpace:"nowrap" }}>• Syntax-Elemente erscheinen hier…</span>
-          : chips.map((c,i) => { const st=CHIP[c.s]||CHIP.unknown; return <span key={i} style={{ display:"inline-flex", alignItems:"center", gap:2, padding:"2px 9px", borderRadius:6, fontSize:12, fontFamily:"monospace", fontWeight:600, background:st.bg, border:`1px solid ${st.border}`, color:st.color, flexShrink:0, whiteSpace:"nowrap" }}>{c.tok}{st.mark&&<span style={{ fontSize:9, opacity:.8 }}>{st.mark}</span>}</span>; })
+          ? <span style={{ fontSize:10, fontFamily:"monospace", color:"#2a2a3e", whiteSpace:"nowrap", paddingLeft:8 }}>• Syntax-Elemente erscheinen hier…</span>
+          : chips.map((c,i) => { const st=CHIP[c.s]||CHIP.unknown; return <span key={i} style={{ display:"inline-flex", alignItems:"center", gap:2, padding:"2px 8px", borderRadius:6, fontSize:12, fontFamily:"monospace", fontWeight:600, background:st.bg, border:`1px solid ${st.border}`, color:st.color, flexShrink:0, whiteSpace:"nowrap" }}>{c.tok}{st.mark&&<span style={{ fontSize:9, opacity:.8 }}>{st.mark}</span>}</span>; })
         }
       </div>
-      {solToks > 0 && chips.length > 0 && (
-        <div style={{ position:"absolute", right:8, top:"50%", transform:"translateY(-50%)", display:"flex", alignItems:"center", gap:4, zIndex:3, background:"#0a0a10", paddingLeft:4 }}>
-          <div style={{ width:32, height:3, background:"#1e1e2e", borderRadius:2, overflow:"hidden" }}>
-            <div style={{ height:"100%", width:`${pct}%`, background:pct===100?"#22c55e":"#7c3aed", borderRadius:2, transition:"width .25s" }} />
+      {/* Progress: always right, overlaid */}
+      {hasProgress && (
+        <div style={{ position:"absolute", right:6, top:"50%", transform:"translateY(-50%)", display:"flex", alignItems:"center", gap:4, zIndex:3, background:"#0a0a10", paddingLeft:6, height:34 }}>
+          <div style={{ width:28, height:3, background:"#1e1e2e", borderRadius:2, overflow:"hidden" }}>
+            <div style={{ height:"100%", width:`${pct}%`, background:barColor, borderRadius:2, transition:"width .3s" }} />
           </div>
-          <span style={{ fontSize:9, fontFamily:"monospace", fontWeight:700, color:pct===100?"#4ade80":"#6b7280", minWidth:26 }}>{pct}%</span>
+          <span style={{ fontSize:9, fontFamily:"monospace", fontWeight:700, color:pctColor, minWidth:28 }}>{pctLabel}</span>
         </div>
       )}
     </div>
@@ -501,16 +511,27 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack, onStart
   const HintBtn = ({ compact = false }: { compact?: boolean }) => (
     <div style={{ position:"relative" }}>
       {hintConfirmPending && (
-        <div style={{ position:"absolute", bottom:"calc(100% + 6px)", left:"50%", transform:"translateX(-50%)", background:"#1a1a2e", border:"1px solid rgba(249,115,22,.5)", borderRadius:10, padding:"8px 12px", whiteSpace:"nowrap", zIndex:200, boxShadow:"0 4px 16px rgba(0,0,0,.4)" }}>
-          <div style={{ fontSize:11, color:"#f97316", fontFamily:"monospace", marginBottom:6, fontWeight:700 }}>Hint {hl+1} anzeigen?</div>
-          <div style={{ display:"flex", gap:6 }}>
-            <button onTouchEnd={e => { e.preventDefault(); requestHint(); }} onClick={requestHint}
-              style={{ flex:1, height:28, borderRadius:7, background:"rgba(249,115,22,.2)", border:"1px solid rgba(249,115,22,.5)", color:"#f97316", fontSize:11, fontWeight:700, cursor:"pointer", outline:"none" }}>✓ Ja</button>
-            <button onTouchEnd={e => { e.preventDefault(); setHintConfirmPending(false); }} onClick={() => setHintConfirmPending(false)}
-              style={{ flex:1, height:28, borderRadius:7, background:"rgba(255,255,255,.05)", border:"1px solid #2a2a42", color:"#6b7280", fontSize:11, fontWeight:700, cursor:"pointer", outline:"none" }}>✗ Nein</button>
+        // Fixed position so it never goes off-screen
+        <div style={{ position:"fixed", bottom:80, left:"50%", transform:"translateX(-50%)", zIndex:800, width:220, background:"#16141f", border:"1px solid rgba(249,115,22,.45)", borderRadius:16, padding:"14px 14px 12px", boxShadow:"0 8px 32px rgba(0,0,0,.7)", backdropFilter:"blur(8px)" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:10 }}>
+            <span style={{ fontSize:18 }}>💡</span>
+            <div>
+              <div style={{ fontSize:12, fontWeight:700, color:"#f97316" }}>Hint {hl+1} freischalten?</div>
+              <div style={{ fontSize:10, color:"#6b7280", marginTop:1 }}>Kostet {hl===0?3:hl===1?6:8} XP</div>
+            </div>
           </div>
-          {/* Arrow */}
-          <div style={{ position:"absolute", bottom:-5, left:"50%", transform:"translateX(-50%)", width:10, height:10, background:"#1a1a2e", border:"1px solid rgba(249,115,22,.5)", borderTop:"none", borderLeft:"none", rotate:"45deg" }} />
+          <div style={{ display:"flex", gap:8 }}>
+            <button onTouchEnd={e => { e.preventDefault(); setHintConfirmPending(false); }} onClick={() => setHintConfirmPending(false)}
+              style={{ flex:1, height:38, borderRadius:10, background:"rgba(255,255,255,.06)", border:"1px solid #252540", color:"#6b7280", fontSize:13, fontWeight:600, cursor:"pointer", outline:"none" }}>
+              Nein
+            </button>
+            <button onTouchEnd={e => { e.preventDefault(); requestHint(); }} onClick={requestHint}
+              style={{ flex:1.5, height:38, borderRadius:10, background:"rgba(249,115,22,.2)", border:"1px solid rgba(249,115,22,.55)", color:"#fb923c", fontSize:13, fontWeight:700, cursor:"pointer", outline:"none" }}>
+              ✓ Ja, zeigen
+            </button>
+          </div>
+          {/* Subtle bottom arrow pointing down toward button */}
+          <div style={{ position:"absolute", bottom:-6, left:"50%", transform:"translateX(-50%) rotate(45deg)", width:11, height:11, background:"#16141f", borderRight:"1px solid rgba(249,115,22,.45)", borderBottom:"1px solid rgba(249,115,22,.45)" }} />
         </div>
       )}
       <button onTouchEnd={e => { e.preventDefault(); requestHint(); }} onClick={requestHint} disabled={solShown}
@@ -522,11 +543,14 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack, onStart
   );
 
   // Sheet expand button (separated from hint)
+  // Sheet expand — disabled until a hint is unlocked
+  const canOpenSheet = hl > 0 || solShown || postSolve;
   const SheetBtn = () => (
     <button
-      onTouchEnd={e => { e.preventDefault(); e.stopPropagation(); setSheetH(s => s===null?200:null); }}
-      onClick={e => { e.stopPropagation(); setSheetH(s => s===null?200:null); }}
-      style={{ width:28, height:34, borderRadius:8, flexShrink:0, background:SHEET_OPEN?"rgba(124,58,237,.2)":"#16162a", border:`1px solid ${SHEET_OPEN?"rgba(124,58,237,.5)":"#252540"}`, color:SHEET_OPEN?"#c4b5fd":"#4b5563", cursor:"pointer", fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", outline:"none" }}>
+      onTouchEnd={e => { e.preventDefault(); e.stopPropagation(); if (canOpenSheet) setSheetH(s => s===null?200:null); }}
+      onClick={e => { e.stopPropagation(); if (canOpenSheet) setSheetH(s => s===null?200:null); }}
+      title={canOpenSheet ? "Hinweise anzeigen" : "Erst einen Hint freischalten"}
+      style={{ width:28, height:34, borderRadius:8, flexShrink:0, background:SHEET_OPEN?"rgba(124,58,237,.2)":canOpenSheet?"#1e1630":"#111118", border:`1px solid ${SHEET_OPEN?"rgba(124,58,237,.5)":canOpenSheet?"#2a1f4a":"#1a1a1a"}`, color:SHEET_OPEN?"#c4b5fd":canOpenSheet?"#5b4a8a":"#2a2a2a", cursor:canOpenSheet?"pointer":"not-allowed", fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", outline:"none", transition:"all .2s" }}>
       {SHEET_OPEN ? "▾" : "▴"}
     </button>
   );
@@ -572,14 +596,16 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack, onStart
 
             {/* Ghost Hint with drag handle */}
             {showGhost && (
-              <div style={{ position:"absolute", left:28, right:0, top:ghostTop + ghostHintPos.y, transform:`translateX(${ghostHintPos.x}px)`, zIndex:5, display:"flex", pointerEvents:"none" }}>
+              <div style={{ position:"absolute", left:28, right:0, top:ghostTop + ghostHintPos.y, transform:`translateX(${ghostHintPos.x}px)`, zIndex:5, display:"flex", alignItems:"flex-start", pointerEvents:"none" }}>
+                {/* Drag handle */}
                 <div
                   onPointerDown={onGhostDragStart} onPointerMove={onGhostDragMove}
                   onPointerUp={onGhostDragUp} onPointerCancel={onGhostDragUp}
-                  style={{ width:16, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", cursor:isDraggingGhost?"grabbing":"grab", touchAction:"none", pointerEvents:"auto", opacity:0.5 }}>
-                  <span style={{ fontSize:10, color:"rgba(120,80,220,.6)", lineHeight:`${LINE_H}px` }}>⠿</span>
+                  style={{ width:16, flexShrink:0, paddingTop:2, display:"flex", alignItems:"flex-start", justifyContent:"center", cursor:isDraggingGhost?"grabbing":"grab", touchAction:"none", pointerEvents:"auto", opacity:0.45 }}>
+                  <span style={{ fontSize:10, color:"rgba(124,58,237,.8)" }}>⠿</span>
                 </div>
-                <div style={{ flex:1, padding:`0 12px 0 0`, fontFamily:"'JetBrains Mono',monospace", fontSize:14, lineHeight:`${LINE_H}px`, color:isDraggingGhost?"rgba(120,80,220,.5)":"rgba(120,80,220,.25)", whiteSpace:"pre-wrap" }}>
+                {/* Full hint text – not line-height-clamped */}
+                <div style={{ flex:1, paddingRight:12, fontFamily:"'JetBrains Mono',monospace", fontSize:13, lineHeight:1.6, color:isDraggingGhost?"rgba(120,80,220,.5)":"rgba(124,58,237,.28)", whiteSpace:"pre-wrap", wordBreak:"break-word" }}>
                   {currentHintText}
                 </div>
               </div>
@@ -629,28 +655,26 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack, onStart
             )}
 
             {/* Floating cluster (toolbar OFF mode) */}
-            {!showTokens && (
-              <div style={{ position:"absolute", bottom:SHEET_OPEN ? sheetH!+8 : 8, right:8, zIndex:50, display:"flex", flexDirection:"column", alignItems:"flex-end", gap:5 }}>
-                {/* Check */}
-                <button onTouchEnd={e => { e.preventDefault(); check(); }} onClick={check}
-                  style={{ height:36, padding:"0 14px", borderRadius:10, background:isCorrect?"rgba(34,197,94,.25)":"rgba(124,58,237,.25)", border:`1px solid ${isCorrect?"rgba(34,197,94,.6)":"rgba(124,58,237,.6)"}`, color:isCorrect?"#4ade80":"#c4b5fd", fontSize:12, fontWeight:700, cursor:"pointer", outline:"none" }}>
-                  {isCorrect?"✓ OK":"▶"}
-                </button>
-                {/* Sheet */}
-                <button onTouchEnd={e => { e.preventDefault(); setSheetH(s => s===null?200:null); }} onClick={() => setSheetH(s => s===null?200:null)}
-                  style={{ width:36, height:28, borderRadius:8, background:SHEET_OPEN?"rgba(124,58,237,.2)":"rgba(255,255,255,.06)", border:`1px solid ${SHEET_OPEN?"rgba(124,58,237,.5)":"#2a2a42"}`, color:SHEET_OPEN?"#c4b5fd":"#4b5563", cursor:"pointer", fontSize:11, outline:"none" }}>
-                  {SHEET_OPEN?"▾":"▴"}
-                </button>
-                {/* Hint */}
+            {!showTokens && !SHEET_OPEN && (
+              <div style={{ position:"absolute", bottom:16, right:10, zIndex:50, display:"flex", flexDirection:"row", alignItems:"center", gap:6, background:"rgba(10,10,20,0.72)", backdropFilter:"blur(10px)", WebkitBackdropFilter:"blur(10px)", borderRadius:14, border:"1px solid rgba(255,255,255,.06)", padding:"6px 8px", boxShadow:"0 4px 20px rgba(0,0,0,.5)" }}>
                 <HintBtn compact />
+                {canOpenSheet && (
+                  <button onTouchEnd={e => { e.preventDefault(); setSheetH(200); }} onClick={() => setSheetH(200)}
+                    style={{ width:30, height:30, borderRadius:8, background:"rgba(124,58,237,.15)", border:"1px solid rgba(124,58,237,.3)", color:"#7c3aed", cursor:"pointer", fontSize:12, display:"flex", alignItems:"center", justifyContent:"center", outline:"none" }}>▴</button>
+                )}
+                <button onTouchEnd={e => { e.preventDefault(); check(); }} onClick={check}
+                  style={{ height:30, padding:"0 12px", borderRadius:8, background:isCorrect?"rgba(34,197,94,.2)":"rgba(124,58,237,.2)", border:`1px solid ${isCorrect?"rgba(34,197,94,.5)":"rgba(124,58,237,.5)"}`, color:isCorrect?"#4ade80":"#c4b5fd", fontSize:11, fontWeight:700, cursor:"pointer", outline:"none" }}>
+                  {isCorrect?"✓":"▶"}
+                </button>
               </div>
             )}
+            {/* When toolbar OFF + sheet OPEN: buttons in sheet header (handled below) */}
           </div>
 
           {/* Toolbar (shown only when showTokens = true) */}
           {showTokens && (
             <div style={{ flexShrink:0, display:"flex", flexDirection:"column" }}>
-              <div style={{ height:TOKEN_H, background:"#0d0d14", borderTop:"1px solid #1e1e2e", display:"flex", alignItems:"center", flexWrap:"nowrap", padding:"0 8px", gap:5, overflowX:"auto", scrollbarWidth:"none", flexShrink:0 }}
+              <div style={{ height:TOKEN_H, background:code.split("\n").length > 4 ? "rgba(13,13,20,0.75)" : "#0d0d14", backdropFilter:code.split("\n").length > 4 ? "blur(8px)" : "none", WebkitBackdropFilter:code.split("\n").length > 4 ? "blur(8px)" : "none", borderTop:"1px solid rgba(30,30,46,0.8)", display:"flex", alignItems:"center", flexWrap:"nowrap", padding:"0 8px", gap:5, overflowX:"auto", scrollbarWidth:"none", flexShrink:0, transition:"background 0.4s" }}
                 onTouchStart={() => setIsScrollingTokens(false)}
                 onTouchMove={() => setIsScrollingTokens(true)}
                 onTouchEnd={() => setTimeout(() => setIsScrollingTokens(false), 50)}
@@ -704,10 +728,29 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack, onStart
 
           {/* Hint / Post-solve Sheet */}
           {SHEET_OPEN && (
-            <div style={{ height:sheetH!, background:!showTokens?"rgba(6,6,9,0.6)":"#111118", backdropFilter:!showTokens?"blur(16px)":"none", borderTop:"1px solid #2a2a42", display:"flex", flexDirection:"column", overflow:"hidden", borderRadius:"12px 12px 0 0", boxShadow:"0 -6px 28px rgba(0,0,0,.5)", flexShrink:0 }}>
-              <div onPointerDown={onSheetDragStart} onPointerMove={onSheetDragMove} onPointerUp={onSheetDragEnd} onPointerCancel={onSheetDragEnd} onTouchStart={onSheetDragStart} onTouchMove={onSheetDragMove} onTouchEnd={onSheetDragEnd}
-                style={{ flexShrink:0, height:20, cursor:"ns-resize", display:"flex", alignItems:"center", justifyContent:"center", userSelect:"none", touchAction:"none" }}>
-                <div style={{ width:32, height:4, borderRadius:2, background:!showTokens?"rgba(255,255,255,.15)":"#2a2a42" }} />
+            <div style={{ height:sheetH!, background:!showTokens?"rgba(6,6,9,0.85)":"#111118", backdropFilter:!showTokens?"blur(18px)":"none", WebkitBackdropFilter:!showTokens?"blur(18px)":"none", borderTop:`1px solid ${!showTokens?"rgba(124,58,237,.2)":"#2a2a42"}`, display:"flex", flexDirection:"column", overflow:"hidden", borderRadius:"16px 16px 0 0", boxShadow:"0 -8px 32px rgba(0,0,0,.6)", flexShrink:0 }}>
+              {/* Sheet header row: drag handle + buttons when toolbar off */}
+              <div style={{ flexShrink:0, display:"flex", alignItems:"center", padding:"0 10px", height:36, borderBottom:`1px solid ${!showTokens?"rgba(255,255,255,.06)":"#1e1e2e"}` }}>
+                {/* Drag area */}
+                <div onPointerDown={onSheetDragStart} onPointerMove={onSheetDragMove} onPointerUp={onSheetDragEnd} onPointerCancel={onSheetDragEnd} onTouchStart={onSheetDragStart} onTouchMove={onSheetDragMove} onTouchEnd={onSheetDragEnd}
+                  style={{ flex:1, height:"100%", cursor:"ns-resize", display:"flex", alignItems:"center", justifyContent:"center", userSelect:"none", touchAction:"none" }}>
+                  <div style={{ width:32, height:4, borderRadius:2, background:!showTokens?"rgba(255,255,255,.12)":"#2a2a42" }} />
+                </div>
+                {/* Buttons in header when toolbar is OFF */}
+                {!showTokens && (
+                  <div style={{ display:"flex", gap:6, alignItems:"center", flexShrink:0 }}>
+                    <HintBtn compact />
+                    <button onTouchEnd={e => { e.preventDefault(); setSheetH(null); }} onClick={() => setSheetH(null)}
+                      style={{ width:28, height:28, borderRadius:8, background:"rgba(124,58,237,.15)", border:"1px solid rgba(124,58,237,.3)", color:"#7c3aed", cursor:"pointer", fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", outline:"none" }}>▾</button>
+                    <button onTouchEnd={e => { e.preventDefault(); check(); }} onClick={check}
+                      style={{ height:28, padding:"0 10px", borderRadius:8, background:isCorrect?"rgba(34,197,94,.2)":"rgba(124,58,237,.2)", border:`1px solid ${isCorrect?"rgba(34,197,94,.5)":"rgba(124,58,237,.5)"}`, color:isCorrect?"#4ade80":"#c4b5fd", fontSize:11, fontWeight:700, cursor:"pointer", outline:"none" }}>
+                      {isCorrect?"✓ OK":"▶ CHECK"}
+                    </button>
+                  </div>
+                )}
+                {/* Close button always */}
+                <button onTouchEnd={e => { e.preventDefault(); setSheetH(null); }} onClick={() => setSheetH(null)}
+                  style={{ width:24, height:24, borderRadius:6, background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.06)", color:"#4b5563", cursor:"pointer", fontSize:11, display:showTokens?"flex":"none", alignItems:"center", justifyContent:"center", outline:"none", marginLeft:6 }}>×</button>
               </div>
               <SheetContent />
             </div>
