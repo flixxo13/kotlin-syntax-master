@@ -84,7 +84,7 @@ export default function App() {
       case 'profile':
         return <ProfileScreen />;
       default:
-        return <HomeScreen onStartTopic={() => {}} onStartCustomTask={() => {}} />;
+        return <HomeScreen onStartTopic={() => {}} onStartCustomTask={() => {}} onGoToImport={() => setActiveTab('import')} />;
     }
   };
 
