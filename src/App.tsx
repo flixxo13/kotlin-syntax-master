@@ -49,7 +49,11 @@ export default function App() {
           topicId={activeExercise.topicId} 
           conceptId={activeExercise.conceptId} 
           exerciseId={activeExercise.exerciseId}
-          onBack={() => setActiveExercise(null)} 
+          onBack={() => setActiveExercise(null)}
+          onStartCustomTask={(taskId) => {
+            const task = customTasks.find((t: any) => t.id === taskId);
+            if (task) setActiveExercise({ topicId: 'custom', conceptId: task.conceptId, exerciseId: task.id });
+          }} 
         />
       );
     }
@@ -70,6 +74,7 @@ export default function App() {
                 setActiveExercise({ topicId: 'custom', conceptId: task.conceptId, exerciseId: task.id });
               }
             }}
+            onGoToImport={() => setActiveTab('import')}
           />
         );
       case 'import':
