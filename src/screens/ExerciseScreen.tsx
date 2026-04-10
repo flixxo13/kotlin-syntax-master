@@ -220,7 +220,9 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack, onStart
   const [fb, setFb]                 = useState<string | null>(null);
   const [chips, setChips]           = useState<any[]>([]);
   const [solved, setSolved]         = useState(false);
-  const [postSolve, setPostSolve]   = useState(false);   // after difficulty rated/skipped
+  const [postSolve, setPostSolve]       = useState(false);   // after difficulty rated/skipped
+  const [showPostSolveSheet, setShowPostSolveSheet] = useState(false); // nav sheet after solve
+  const [showHintSheet, setShowHintSheet]           = useState(false); // hint confirm sheet
   const [showDifficulty, setShowDifficulty] = useState(false);
   const [taskOpen, setTaskOpen]     = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
@@ -287,7 +289,8 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack, onStart
   useEffect(() => {
     setCode(ex?.initialCode || "");
     setHintLevel(0); setSolShown(false); setFb(null); setChips([]); setSolved(false);
-    setPostSolve(false); setTaskOpen(true); setSheetH(null); setFullscreen(false);
+    setPostSolve(false); setShowPostSolveSheet(false); setShowHintSheet(false);
+    setTaskOpen(true); setSheetH(null); setFullscreen(false);
     setCaseHint(null); setTaskOverlay(false); setOverlayPos({ x:0, y:0 });
     setGhostHintPos({ x:0, y:0 }); setHintConfirmPending(false);
   }, [ex?.id]);
@@ -326,13 +329,13 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack, onStart
     rateDifficulty(ex.id, level);
     setShowDifficulty(false);
     setPostSolve(true);
-    setSheetH(240);
+    setShowPostSolveSheet(true);
   }, [ex?.id, rateDifficulty]);
 
   const handleDifficultySkip = useCallback(() => {
     setShowDifficulty(false);
     setPostSolve(true);
-    setSheetH(240);
+    setShowPostSolveSheet(true);
   }, []);
 
   const handleNext = useCallback(() => {
@@ -363,7 +366,7 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack, onStart
       if (topicId === "custom") {
         setTimeout(() => setShowDifficulty(true), 700);
       } else {
-        setTimeout(() => { setPostSolve(true); setSheetH(240); }, 800);
+        setTimeout(() => { setPostSolve(true); setShowPostSolveSheet(true); }, 800);
       }
       setTimeout(() => setFb(null), 2000);
     } else {
@@ -373,32 +376,26 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack, onStart
     }
   }, [isCorrect, code, ex, hl, topicId, completeExercise]);
 
-  // Two-step hint: first tap = confirm, second tap = reveal
+  // Tap 1: open mini sheet to confirm. Tap confirm: reveal hint.
   const requestHint = useCallback(() => {
     if (solShown) return;
-    if (!hintConfirmPending) {
-      setHintConfirmPending(true);
-      if (hintConfirmTimer.current) clearTimeout(hintConfirmTimer.current);
-      hintConfirmTimer.current = setTimeout(() => setHintConfirmPending(false), 2500);
-      return;
-    }
-    // Confirmed
-    setHintConfirmPending(false);
-    if (hintConfirmTimer.current) clearTimeout(hintConfirmTimer.current);
+    setShowHintSheet(true);
+  }, [solShown]);
+
+  const confirmHint = useCallback(() => {
+    setShowHintSheet(false);
     let nextLevel: number;
     if (!allUsed) {
       nextLevel = (typeof hintLevel === "number" ? hintLevel : 3) + 1;
       setHintLevel(nextLevel);
-      setSheetH(h => h === null ? 200 : h); // open sheet if closed
     } else {
       setSolShown(true);
-      setSheetH(200);
       nextLevel = 99;
     }
     if (hintToastTimer.current) clearTimeout(hintToastTimer.current);
     setHintToast(nextLevel === 99 ? "Lösung eingeblendet" : `Hint ${nextLevel} aktiv 💡`);
     hintToastTimer.current = setTimeout(() => setHintToast(null), 1800);
-  }, [solShown, allUsed, hintLevel, hintConfirmPending]);
+  }, [solShown, allUsed, hintLevel]);
 
   const insert = useCallback((raw: string, tokenIdx?: number) => {
     const text = raw.replace("( )","()").replace("{ }","{}").replace("[ ]","[]");
@@ -508,51 +505,241 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack, onStart
   );
 
   // ── Hint button with confirmation ─────────────────────────────────────────────
-  const HintBtn = ({ compact = false }: { compact?: boolean }) => (
-    <div style={{ position:"relative" }}>
-      {hintConfirmPending && (
-        // Fixed position so it never goes off-screen
-        <div style={{ position:"fixed", bottom:80, left:"50%", transform:"translateX(-50%)", zIndex:800, width:220, background:"#16141f", border:"1px solid rgba(249,115,22,.45)", borderRadius:16, padding:"14px 14px 12px", boxShadow:"0 8px 32px rgba(0,0,0,.7)", backdropFilter:"blur(8px)" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:10 }}>
-            <span style={{ fontSize:18 }}>💡</span>
-            <div>
-              <div style={{ fontSize:12, fontWeight:700, color:"#f97316" }}>Hint {hl+1} freischalten?</div>
-              <div style={{ fontSize:10, color:"#6b7280", marginTop:1 }}>Kostet {hl===0?3:hl===1?6:8} XP</div>
-            </div>
-          </div>
-          <div style={{ display:"flex", gap:8 }}>
-            <button onTouchEnd={e => { e.preventDefault(); setHintConfirmPending(false); }} onClick={() => setHintConfirmPending(false)}
-              style={{ flex:1, height:38, borderRadius:10, background:"rgba(255,255,255,.06)", border:"1px solid #252540", color:"#6b7280", fontSize:13, fontWeight:600, cursor:"pointer", outline:"none" }}>
-              Nein
-            </button>
-            <button onTouchEnd={e => { e.preventDefault(); requestHint(); }} onClick={requestHint}
-              style={{ flex:1.5, height:38, borderRadius:10, background:"rgba(249,115,22,.2)", border:"1px solid rgba(249,115,22,.55)", color:"#fb923c", fontSize:13, fontWeight:700, cursor:"pointer", outline:"none" }}>
-              ✓ Ja, zeigen
-            </button>
-          </div>
-          {/* Subtle bottom arrow pointing down toward button */}
-          <div style={{ position:"absolute", bottom:-6, left:"50%", transform:"translateX(-50%) rotate(45deg)", width:11, height:11, background:"#16141f", borderRight:"1px solid rgba(249,115,22,.45)", borderBottom:"1px solid rgba(249,115,22,.45)" }} />
-        </div>
-      )}
-      <button onTouchEnd={e => { e.preventDefault(); requestHint(); }} onClick={requestHint} disabled={solShown}
-        style={{ height:compact?32:34, padding:"0 8px", borderRadius:8, flexShrink:0, background:hintConfirmPending?"rgba(249,115,22,.25)":hl>0?"rgba(249,115,22,.15)":"#16162a", border:`1px solid ${hintConfirmPending?"rgba(249,115,22,.7)":hl>0?"rgba(249,115,22,.4)":"#252540"}`, color:solShown?"#374151":hintConfirmPending?"#f97316":hl>0?"#f97316":"#6b7280", cursor:solShown?"default":"pointer", display:"flex", alignItems:"center", gap:5, outline:"none", transition:"all .15s" }}>
-        <span style={{ fontSize:14 }}>💡</span>
-        <div style={{ display:"flex", gap:3 }}>{[0,1,2].map(i => <div key={i} style={{ width:5, height:5, borderRadius:"50%", background:i<hl?HCOL[i]:"#252540" }} />)}</div>
+  const canOpenSheet = hl > 0 || solShown || postSolve;
+
+  // ── Floating Action Stack ──────────────────────────────────────────────────
+  // bottom adjusts: toolbar(48) + optional extra padding
+  const fasBottom = showTokens ? TOKEN_H + 14 : 14;
+
+  const FloatingActionStack = () => (
+    <div style={{
+      position: "absolute",
+      bottom: SHEET_OPEN ? (sheetH ?? 0) + 14 : fasBottom,
+      right: 12,
+      zIndex: 60,
+      display: "flex",
+      flexDirection: "column-reverse",
+      alignItems: "center",
+      gap: 10,
+      transition: "bottom 0.25s cubic-bezier(.4,0,.2,1)",
+      pointerEvents: "none", // children handle events
+    }}>
+      {/* CHECK — primary, 56px circle */}
+      <button
+        onTouchEnd={e => { e.preventDefault(); check(); }}
+        onClick={check}
+        style={{
+          width: 56, height: 56, borderRadius: "50%", flexShrink: 0,
+          background: isCorrect
+            ? "linear-gradient(135deg,#16a34a,#22c55e)"
+            : "linear-gradient(135deg,#5b21b6,#7f52ff)",
+          border: "none",
+          boxShadow: isCorrect
+            ? "0 4px 20px rgba(34,197,94,.45), 0 0 0 3px rgba(34,197,94,.15)"
+            : "0 4px 20px rgba(124,58,237,.5), 0 0 0 3px rgba(124,58,237,.15)",
+          color: "#fff",
+          fontSize: 22,
+          cursor: "pointer",
+          outline: "none",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          transition: "all .2s",
+          pointerEvents: "auto",
+        }}
+        aria-label={isCorrect ? "Richtig!" : "Code prüfen"}
+      >
+        {isCorrect ? "✓" : "▶"}
       </button>
+
+      {/* HINT — glassmorphism, 44px circle */}
+      <button
+        onTouchEnd={e => { e.preventDefault(); requestHint(); }}
+        onClick={requestHint}
+        disabled={solShown}
+        style={{
+          width: 44, height: 44, borderRadius: "50%", flexShrink: 0,
+          background: hl > 0
+            ? "rgba(249,115,22,.22)"
+            : "rgba(15,10,30,0.7)",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+          border: `1.5px solid ${hl > 0 ? "rgba(249,115,22,.55)" : "rgba(255,255,255,.1)"}`,
+          boxShadow: hl > 0
+            ? "0 3px 14px rgba(249,115,22,.3)"
+            : "0 3px 14px rgba(0,0,0,.4)",
+          color: solShown ? "#2a2a2a" : hl > 0 ? "#f97316" : "#9ca3af",
+          fontSize: 18,
+          cursor: solShown ? "not-allowed" : "pointer",
+          outline: "none",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          position: "relative",
+          transition: "all .2s",
+          pointerEvents: "auto",
+        }}
+        aria-label="Hint anzeigen"
+      >
+        💡
+        {/* Hint level dots */}
+        {hl > 0 && (
+          <div style={{ position:"absolute", top:-2, right:-2, background:"#f97316", borderRadius:"50%", width:16, height:16, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:700, color:"#fff", border:"2px solid #060609" }}>
+            {hl}
+          </div>
+        )}
+      </button>
+
+      {/* SHEET TOGGLE — small pill, only when hints unlocked */}
+      {canOpenSheet && (
+        <button
+          onTouchEnd={e => { e.preventDefault(); setSheetH(s => s===null ? 220 : null); }}
+          onClick={() => setSheetH(s => s===null ? 220 : null)}
+          style={{
+            height: 28, padding: "0 10px", borderRadius: 14, flexShrink: 0,
+            background: SHEET_OPEN ? "rgba(124,58,237,.3)" : "rgba(15,10,30,0.7)",
+            backdropFilter: "blur(10px)",
+            WebkitBackdropFilter: "blur(10px)",
+            border: `1px solid ${SHEET_OPEN ? "rgba(124,58,237,.6)" : "rgba(255,255,255,.1)"}`,
+            color: SHEET_OPEN ? "#c4b5fd" : "#6b7280",
+            fontSize: 11, fontWeight: 600,
+            cursor: "pointer", outline: "none",
+            display: "flex", alignItems: "center", gap: 4,
+            transition: "all .2s",
+            pointerEvents: "auto",
+          }}
+          aria-label={SHEET_OPEN ? "Sheet schließen" : "Hinweise öffnen"}
+        >
+          {SHEET_OPEN ? "▾ Schließen" : "▴ Hinweise"}
+        </button>
+      )}
     </div>
   );
 
-  // Sheet expand button (separated from hint)
-  // Sheet expand — disabled until a hint is unlocked
-  const canOpenSheet = hl > 0 || solShown || postSolve;
-  const SheetBtn = () => (
-    <button
-      onTouchEnd={e => { e.preventDefault(); e.stopPropagation(); if (canOpenSheet) setSheetH(s => s===null?200:null); }}
-      onClick={e => { e.stopPropagation(); if (canOpenSheet) setSheetH(s => s===null?200:null); }}
-      title={canOpenSheet ? "Hinweise anzeigen" : "Erst einen Hint freischalten"}
-      style={{ width:28, height:34, borderRadius:8, flexShrink:0, background:SHEET_OPEN?"rgba(124,58,237,.2)":canOpenSheet?"#1e1630":"#111118", border:`1px solid ${SHEET_OPEN?"rgba(124,58,237,.5)":canOpenSheet?"#2a1f4a":"#1a1a1a"}`, color:SHEET_OPEN?"#c4b5fd":canOpenSheet?"#5b4a8a":"#2a2a2a", cursor:canOpenSheet?"pointer":"not-allowed", fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", outline:"none", transition:"all .2s" }}>
-      {SHEET_OPEN ? "▾" : "▴"}
-    </button>
+  // ── Hint Confirm Mini-Sheet (portal-style, fixed) ──────────────────────────
+  const HintConfirmSheet = () => (
+    showHintSheet ? (
+      <>
+        {/* Backdrop */}
+        <div
+          onClick={() => setShowHintSheet(false)}
+          style={{ position:"fixed", inset:0, zIndex:900, background:"rgba(0,0,0,.4)", backdropFilter:"blur(2px)" }}
+        />
+        {/* Sheet */}
+        <div style={{
+          position:"fixed", bottom: showTokens ? TOKEN_H + 8 : 8,
+          left:"50%", transform:"translateX(-50%)",
+          width:"min(340px, calc(100vw - 32px))",
+          zIndex:901,
+          background:"#111118",
+          borderRadius:20,
+          border:"1px solid rgba(249,115,22,.3)",
+          padding:"16px 16px 14px",
+          boxShadow:"0 -4px 32px rgba(0,0,0,.7), 0 0 0 1px rgba(249,115,22,.08)",
+        }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+            <div style={{ width:36, height:36, borderRadius:"50%", background:"rgba(249,115,22,.15)", border:"1px solid rgba(249,115,22,.3)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>💡</div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:14, fontWeight:700, color:"#f1f0fb" }}>
+                {allUsed ? "Lösung anzeigen?" : `Hint ${hl+1} freischalten?`}
+              </div>
+              <div style={{ fontSize:11, color:"#6b7280", marginTop:2 }}>
+                {allUsed ? "XP: 0 – du siehst die komplette Lösung" : `Kostet ${hl===0?3:hl===1?6:8} XP · Noch ${3-hl} Hint${3-hl!==1?"s":""} verfügbar`}
+              </div>
+            </div>
+          </div>
+          <div style={{ display:"flex", gap:10 }}>
+            <button
+              onTouchEnd={e => { e.preventDefault(); setShowHintSheet(false); }}
+              onClick={() => setShowHintSheet(false)}
+              style={{ flex:1, height:42, borderRadius:12, background:"rgba(255,255,255,.06)", border:"1px solid rgba(255,255,255,.08)", color:"#9ca3af", fontSize:14, fontWeight:600, cursor:"pointer", outline:"none" }}
+            >
+              Abbrechen
+            </button>
+            <button
+              onTouchEnd={e => { e.preventDefault(); confirmHint(); }}
+              onClick={confirmHint}
+              style={{ flex:1.6, height:42, borderRadius:12, background:"linear-gradient(135deg,rgba(249,115,22,.25),rgba(251,146,60,.2))", border:"1px solid rgba(249,115,22,.5)", color:"#fb923c", fontSize:14, fontWeight:700, cursor:"pointer", outline:"none", boxShadow:"0 2px 12px rgba(249,115,22,.2)" }}
+            >
+              ✓ Ja, zeigen
+            </button>
+          </div>
+        </div>
+      </>
+    ) : null
+  );
+
+  // ── Post-Solve Sheet (fixed bottom, after difficulty) ──────────────────────
+  const PostSolveSheet = () => (
+    showPostSolveSheet ? (
+      <>
+        <div
+          onClick={() => setShowPostSolveSheet(false)}
+          style={{ position:"fixed", inset:0, zIndex:900, background:"rgba(0,0,0,.45)", backdropFilter:"blur(3px)" }}
+        />
+        <div style={{
+          position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)",
+          width:"100%", maxWidth:430,
+          zIndex:901,
+          background:"#0f0f1a",
+          borderRadius:"20px 20px 0 0",
+          border:"1px solid rgba(124,58,237,.25)",
+          borderBottom:"none",
+          padding:"20px 20px 40px",
+          boxShadow:"0 -8px 40px rgba(0,0,0,.7)",
+        }}>
+          {/* Handle */}
+          <div style={{ width:36, height:4, borderRadius:2, background:"rgba(124,58,237,.3)", margin:"0 auto 18px" }} />
+
+          {/* Success badge */}
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:20 }}>
+            <div style={{ fontSize:32 }}>🎉</div>
+            <div>
+              <div style={{ fontSize:16, fontWeight:700, color:"#4ade80" }}>Aufgabe gelöst!</div>
+              <div style={{ fontSize:12, color:"#6b7280", marginTop:2 }}>
+                {exIdx < EXERCISES.length-1 ? "Bereit für die nächste Herausforderung?" : "Du hast alle Aufgaben abgeschlossen!"}
+              </div>
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div style={{ display:"flex", gap:10 }}>
+            {exIdx < EXERCISES.length-1 ? (
+              <button
+                onTouchEnd={e => { e.preventDefault(); setShowPostSolveSheet(false); handleNext(); }}
+                onClick={() => { setShowPostSolveSheet(false); handleNext(); }}
+                style={{ flex:2, height:50, borderRadius:14, background:"linear-gradient(135deg,#5b21b6,#7f52ff)", border:"none", color:"#fff", fontSize:14, fontWeight:700, cursor:"pointer", outline:"none", boxShadow:"0 3px 16px rgba(124,58,237,.4)", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}
+              >
+                Weiter → <span style={{ fontSize:11, opacity:.7 }}>Übung {exIdx+2}</span>
+              </button>
+            ) : (
+              <button
+                onTouchEnd={e => { e.preventDefault(); setShowPostSolveSheet(false); onBack?.(); }}
+                onClick={() => { setShowPostSolveSheet(false); onBack?.(); }}
+                style={{ flex:2, height:50, borderRadius:14, background:"linear-gradient(135deg,#16a34a,#22c55e)", border:"none", color:"#fff", fontSize:14, fontWeight:700, cursor:"pointer", outline:"none", boxShadow:"0 3px 16px rgba(34,197,94,.35)" }}
+              >
+                🏆 Alle gelöst!
+              </button>
+            )}
+            {customTasks.length > 0 && (
+              <button
+                onTouchEnd={e => { e.preventDefault(); setShowPostSolveSheet(false); handleRandom(); }}
+                onClick={() => { setShowPostSolveSheet(false); handleRandom(); }}
+                style={{ flex:1, height:50, borderRadius:14, background:"rgba(124,58,237,.15)", border:"1px solid rgba(124,58,237,.35)", color:"#c4b5fd", fontSize:20, cursor:"pointer", outline:"none" }}
+                title="Zufällige Aufgabe"
+              >
+                🎲
+              </button>
+            )}
+          </div>
+
+          {/* Stay on exercise */}
+          <button
+            onTouchEnd={e => { e.preventDefault(); setShowPostSolveSheet(false); }}
+            onClick={() => setShowPostSolveSheet(false)}
+            style={{ width:"100%", marginTop:12, padding:"8px 0", background:"none", border:"none", color:"#374151", fontSize:12, cursor:"pointer", fontFamily:"Inter,sans-serif" }}
+          >
+            Bei dieser Aufgabe bleiben
+          </button>
+        </div>
+      </>
+    ) : null
   );
 
   // ═════════════════════════════════════════════════════════════════════════════
@@ -564,6 +751,8 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack, onStart
         <style>{STYLES}</style>
         <DifficultyModal isOpen={showDifficulty} onRate={handleDifficultyRate} onSkip={handleDifficultySkip} />
         {showOnboarding && <OnboardingModal onDone={() => setShowOnboarding(false)} />}
+        <HintConfirmSheet />
+        <PostSolveSheet />
 
         {hintToast && (
           <div style={{ position:"fixed", top:56, left:"50%", transform:"translateX(-50%)", zIndex:500, background:"rgba(249,115,22,.15)", border:"1px solid rgba(249,115,22,.4)", borderRadius:10, padding:"7px 16px", fontSize:12, fontFamily:"monospace", fontWeight:700, color:"#f97316", whiteSpace:"nowrap", backdropFilter:"blur(8px)", pointerEvents:"none" }}>
@@ -654,103 +843,48 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack, onStart
               </div>
             )}
 
-            {/* Floating cluster (toolbar OFF mode) */}
-            {!showTokens && !SHEET_OPEN && (
-              <div style={{ position:"absolute", bottom:16, right:10, zIndex:50, display:"flex", flexDirection:"row", alignItems:"center", gap:6, background:"rgba(10,10,20,0.72)", backdropFilter:"blur(10px)", WebkitBackdropFilter:"blur(10px)", borderRadius:14, border:"1px solid rgba(255,255,255,.06)", padding:"6px 8px", boxShadow:"0 4px 20px rgba(0,0,0,.5)" }}>
-                <HintBtn compact />
-                {canOpenSheet && (
-                  <button onTouchEnd={e => { e.preventDefault(); setSheetH(200); }} onClick={() => setSheetH(200)}
-                    style={{ width:30, height:30, borderRadius:8, background:"rgba(124,58,237,.15)", border:"1px solid rgba(124,58,237,.3)", color:"#7c3aed", cursor:"pointer", fontSize:12, display:"flex", alignItems:"center", justifyContent:"center", outline:"none" }}>▴</button>
-                )}
-                <button onTouchEnd={e => { e.preventDefault(); check(); }} onClick={check}
-                  style={{ height:30, padding:"0 12px", borderRadius:8, background:isCorrect?"rgba(34,197,94,.2)":"rgba(124,58,237,.2)", border:`1px solid ${isCorrect?"rgba(34,197,94,.5)":"rgba(124,58,237,.5)"}`, color:isCorrect?"#4ade80":"#c4b5fd", fontSize:11, fontWeight:700, cursor:"pointer", outline:"none" }}>
-                  {isCorrect?"✓":"▶"}
-                </button>
-              </div>
-            )}
-            {/* When toolbar OFF + sheet OPEN: buttons in sheet header (handled below) */}
+            {/* FAS — always in editor layer, above all editor content */}
+            <FloatingActionStack />
           </div>
 
-          {/* Toolbar (shown only when showTokens = true) */}
+          {/* Syntax Tokens Toolbar — ONLY tokens, no action buttons */}
           {showTokens && (
-            <div style={{ flexShrink:0, display:"flex", flexDirection:"column" }}>
-              <div style={{ height:TOKEN_H, background:code.split("\n").length > 4 ? "rgba(13,13,20,0.75)" : "#0d0d14", backdropFilter:code.split("\n").length > 4 ? "blur(8px)" : "none", WebkitBackdropFilter:code.split("\n").length > 4 ? "blur(8px)" : "none", borderTop:"1px solid rgba(30,30,46,0.8)", display:"flex", alignItems:"center", flexWrap:"nowrap", padding:"0 8px", gap:5, overflowX:"auto", scrollbarWidth:"none", flexShrink:0, transition:"background 0.4s" }}
-                onTouchStart={() => setIsScrollingTokens(false)}
-                onTouchMove={() => setIsScrollingTokens(true)}
-                onTouchEnd={() => setTimeout(() => setIsScrollingTokens(false), 50)}
-              >
-                {/* Left: hint + sheet expand (clearly separated) */}
-                <HintBtn />
-                <SheetBtn />
-
-                <div style={{ width:1, height:22, background:"#1e1e2e", flexShrink:0 }} />
-
-                {/* Post-solve nav (bottom-left, if sheet closed) */}
-                {postSolve && !SHEET_OPEN && (
-                  <>
-                    <button onTouchEnd={e => { e.preventDefault(); handleNext(); }} onClick={handleNext}
-                      style={{ height:34, padding:"0 10px", borderRadius:8, flexShrink:0, background:"rgba(124,58,237,.2)", border:"1px solid rgba(124,58,237,.4)", color:"#c4b5fd", fontSize:11, fontWeight:700, cursor:"pointer", outline:"none" }}>
-                      {exIdx < EXERCISES.length-1 ? "→" : "🏆"}
-                    </button>
-                    {customTasks.length > 0 && (
-                      <button onTouchEnd={e => { e.preventDefault(); handleRandom(); }} onClick={handleRandom}
-                        style={{ height:34, width:34, borderRadius:8, flexShrink:0, background:"rgba(124,58,237,.15)", border:"1px solid rgba(124,58,237,.3)", color:"#c4b5fd", fontSize:14, cursor:"pointer", outline:"none" }}>
-                        🎲
-                      </button>
-                    )}
-                    <div style={{ width:1, height:22, background:"#1e1e2e", flexShrink:0 }} />
-                  </>
-                )}
-
-                {/* Check */}
-                <button onTouchEnd={e => { e.preventDefault(); check(); }} onClick={check}
-                  style={{ width:80, height:34, borderRadius:8, flexShrink:0, background:isCorrect?"rgba(34,197,94,.2)":"#16162a", border:`1.5px solid ${isCorrect?"#22c55e":"#252540"}`, color:isCorrect?"#4ade80":"#6b7280", cursor:"pointer", fontSize:11, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", gap:4, outline:"none", transition:"all .2s" }}>
-                  {isCorrect?"✓ OK":"▶ CHECK"}
-                </button>
-
-                <div style={{ width:1, height:22, background:"#1e1e2e", flexShrink:0 }} />
-
-                {/* Smart tokens */}
-                {smartToks.map((s,i) => {
-                  const isFlashing = flashIdx === i;
-                  return (
-                    <button key={i}
-                      onTouchEnd={e => { e.preventDefault(); if(isScrollingTokens) return; insert(s,i); }}
-                      onClick={() => { if(isScrollingTokens) return; insert(s,i); }}
-                      style={{ padding:"5px 10px", height:34, flexShrink:0, background:isFlashing?"rgba(124,58,237,.4)":"#16162a", border:`1px solid ${isFlashing?"#7c3aed":"#252540"}`, borderRadius:7, color:isFlashing?"#e9d5ff":"#c4b5fd", fontFamily:"monospace", fontSize:12, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap", outline:"none", transform:isFlashing?"scale(1.08)":"scale(1)", transition:"background 0.2s, border 0.2s, transform 0.15s, color 0.2s", boxShadow:isFlashing?"0 0 10px rgba(124,58,237,.4)":"none" }}>
-                      {s}
-                    </button>
-                  );
-                })}
-              </div>
+            <div
+              style={{ height:TOKEN_H, background:code.split("\n").length > 5 ? "rgba(13,13,20,0.8)" : "#0d0d14", backdropFilter:code.split("\n").length > 5 ? "blur(10px)" : "none", WebkitBackdropFilter:code.split("\n").length > 5 ? "blur(10px)" : "none", borderTop:"1px solid rgba(30,30,46,0.7)", display:"flex", alignItems:"center", flexWrap:"nowrap", padding:"0 10px", gap:6, overflowX:"auto", scrollbarWidth:"none", flexShrink:0, transition:"background 0.35s" }}
+              onTouchStart={() => setIsScrollingTokens(false)}
+              onTouchMove={() => setIsScrollingTokens(true)}
+              onTouchEnd={() => setTimeout(() => setIsScrollingTokens(false), 50)}
+            >
+              {smartToks.map((s,i) => {
+                const isFlashing = flashIdx === i;
+                return (
+                  <button key={i}
+                    onTouchEnd={e => { e.preventDefault(); if(isScrollingTokens) return; insert(s,i); }}
+                    onClick={() => { if(isScrollingTokens) return; insert(s,i); }}
+                    style={{ padding:"5px 12px", height:34, flexShrink:0, background:isFlashing?"rgba(124,58,237,.4)":"rgba(255,255,255,.05)", border:`1px solid ${isFlashing?"#7c3aed":"rgba(255,255,255,.08)"}`, borderRadius:8, color:isFlashing?"#e9d5ff":"#c4b5fd", fontFamily:"monospace", fontSize:12, fontWeight:600, cursor:"pointer", whiteSpace:"nowrap", outline:"none", transform:isFlashing?"scale(1.06)":"scale(1)", transition:"all 0.15s", boxShadow:isFlashing?"0 0 10px rgba(124,58,237,.35)":"none" }}>
+                    {s}
+                  </button>
+                );
+              })}
             </div>
           )}
 
-          {/* Hint / Post-solve Sheet */}
+          {/* Hint Bottom Sheet — z-index above FAS, manual open only */}
           {SHEET_OPEN && (
-            <div style={{ height:sheetH!, background:!showTokens?"rgba(6,6,9,0.85)":"#111118", backdropFilter:!showTokens?"blur(18px)":"none", WebkitBackdropFilter:!showTokens?"blur(18px)":"none", borderTop:`1px solid ${!showTokens?"rgba(124,58,237,.2)":"#2a2a42"}`, display:"flex", flexDirection:"column", overflow:"hidden", borderRadius:"16px 16px 0 0", boxShadow:"0 -8px 32px rgba(0,0,0,.6)", flexShrink:0 }}>
-              {/* Sheet header row: drag handle + buttons when toolbar off */}
-              <div style={{ flexShrink:0, display:"flex", alignItems:"center", padding:"0 10px", height:36, borderBottom:`1px solid ${!showTokens?"rgba(255,255,255,.06)":"#1e1e2e"}` }}>
-                {/* Drag area */}
-                <div onPointerDown={onSheetDragStart} onPointerMove={onSheetDragMove} onPointerUp={onSheetDragEnd} onPointerCancel={onSheetDragEnd} onTouchStart={onSheetDragStart} onTouchMove={onSheetDragMove} onTouchEnd={onSheetDragEnd}
-                  style={{ flex:1, height:"100%", cursor:"ns-resize", display:"flex", alignItems:"center", justifyContent:"center", userSelect:"none", touchAction:"none" }}>
-                  <div style={{ width:32, height:4, borderRadius:2, background:!showTokens?"rgba(255,255,255,.12)":"#2a2a42" }} />
-                </div>
-                {/* Buttons in header when toolbar is OFF */}
-                {!showTokens && (
-                  <div style={{ display:"flex", gap:6, alignItems:"center", flexShrink:0 }}>
-                    <HintBtn compact />
-                    <button onTouchEnd={e => { e.preventDefault(); setSheetH(null); }} onClick={() => setSheetH(null)}
-                      style={{ width:28, height:28, borderRadius:8, background:"rgba(124,58,237,.15)", border:"1px solid rgba(124,58,237,.3)", color:"#7c3aed", cursor:"pointer", fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", outline:"none" }}>▾</button>
-                    <button onTouchEnd={e => { e.preventDefault(); check(); }} onClick={check}
-                      style={{ height:28, padding:"0 10px", borderRadius:8, background:isCorrect?"rgba(34,197,94,.2)":"rgba(124,58,237,.2)", border:`1px solid ${isCorrect?"rgba(34,197,94,.5)":"rgba(124,58,237,.5)"}`, color:isCorrect?"#4ade80":"#c4b5fd", fontSize:11, fontWeight:700, cursor:"pointer", outline:"none" }}>
-                      {isCorrect?"✓ OK":"▶ CHECK"}
-                    </button>
-                  </div>
-                )}
-                {/* Close button always */}
-                <button onTouchEnd={e => { e.preventDefault(); setSheetH(null); }} onClick={() => setSheetH(null)}
-                  style={{ width:24, height:24, borderRadius:6, background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.06)", color:"#4b5563", cursor:"pointer", fontSize:11, display:showTokens?"flex":"none", alignItems:"center", justifyContent:"center", outline:"none", marginLeft:6 }}>×</button>
+            <div style={{ height:sheetH!, background:"#0f0f1a", borderTop:"1px solid rgba(124,58,237,.2)", display:"flex", flexDirection:"column", overflow:"hidden", borderRadius:"18px 18px 0 0", boxShadow:"0 -10px 40px rgba(0,0,0,.7)", flexShrink:0, zIndex:70 }}>
+              {/* Grabber only */}
+              <div
+                onPointerDown={onSheetDragStart} onPointerMove={onSheetDragMove}
+                onPointerUp={onSheetDragEnd} onPointerCancel={onSheetDragEnd}
+                onTouchStart={onSheetDragStart} onTouchMove={onSheetDragMove} onTouchEnd={onSheetDragEnd}
+                style={{ flexShrink:0, height:28, cursor:"ns-resize", display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 14px", userSelect:"none", touchAction:"none" }}>
+                <div style={{ width:36, height:4, borderRadius:2, background:"rgba(124,58,237,.3)", margin:"0 auto" }} />
+                <button
+                  onTouchEnd={e => { e.preventDefault(); e.stopPropagation(); setSheetH(null); }}
+                  onClick={e => { e.stopPropagation(); setSheetH(null); }}
+                  style={{ position:"absolute", right:14, top:"50%", transform:"translateY(-50%)", width:22, height:22, borderRadius:6, background:"rgba(255,255,255,.06)", border:"1px solid rgba(255,255,255,.06)", color:"#4b5563", cursor:"pointer", fontSize:12, display:"flex", alignItems:"center", justifyContent:"center", outline:"none" }}>
+                  ×
+                </button>
               </div>
               <SheetContent />
             </div>
@@ -771,6 +905,8 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack, onStart
       <DifficultyModal isOpen={showDifficulty} onRate={handleDifficultyRate} onSkip={handleDifficultySkip} />
       {showOnboarding && <OnboardingModal onDone={() => setShowOnboarding(false)} />}
       {showChipSheet  && <ChipModeSheet onChoice={enterFullscreen} />}
+      <HintConfirmSheet />
+      <PostSolveSheet />
 
       <div style={{ display:"flex", flexDirection:"column", height:"100dvh", maxWidth:430, margin:"0 auto", background:"#060609", color:"#f1f0fb", fontFamily:"'Inter',system-ui,sans-serif", overflow:"hidden", paddingBottom:56 }}>
 
@@ -824,31 +960,8 @@ export function ExerciseScreen({ topicId, conceptId, exerciseId, onBack, onStart
       {/* Fixed Bottom Bar */}
       <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:430, zIndex:200 }}>
         <div style={{ background:"#0d0d14", borderTop:"1px solid #1e1e2e", padding:"6px 16px 8px", display:"flex", alignItems:"flex-end", gap:0 }}>
-          {/* Left: hint / post-solve nav */}
-          <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-start", gap:3 }}>
-            <span style={{ fontSize:9, fontFamily:"monospace", color:"#374151", letterSpacing:".04em" }}>
-              {postSolve ? "Navigation" : "Gestufter Hinweis"}
-            </span>
-            {postSolve ? (
-              <div style={{ display:"flex", gap:6 }}>
-                <button onClick={handleNext} style={{ height:36, padding:"0 14px", borderRadius:10, background:"rgba(124,58,237,.2)", border:"1px solid rgba(124,58,237,.4)", color:"#c4b5fd", fontSize:12, fontWeight:700, cursor:"pointer", outline:"none" }}>
-                  {exIdx < EXERCISES.length-1 ? "Weiter →" : "🏆"}
-                </button>
-                {customTasks.length > 0 && (
-                  <button onClick={handleRandom} style={{ height:36, width:36, borderRadius:10, background:"rgba(124,58,237,.15)", border:"1px solid rgba(124,58,237,.3)", color:"#c4b5fd", fontSize:14, cursor:"pointer", outline:"none" }}>🎲</button>
-                )}
-              </div>
-            ) : (
-              <HintBtn />
-            )}
-          </div>
-          <div style={{ flex:1 }} />
-          {/* Right: check */}
-          <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
-            <span style={{ fontSize:9, fontFamily:"monospace", color:"#374151", letterSpacing:".04em" }}>Lösung prüfen</span>
-            <button onClick={check} style={{ height:36, padding:"0 20px", borderRadius:10, background:isCorrect?"linear-gradient(135deg,#16a34a,#22c55e)":"linear-gradient(135deg,#5b21b6,#7c3aed)", border:"none", color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer", outline:"none", boxShadow:isCorrect?"0 2px 12px rgba(34,197,94,.25)":"0 2px 12px rgba(124,58,237,.22)", display:"flex", alignItems:"center", gap:7 }}>
-              {isCorrect?"✓ OK":"▶ CHECK CODE"}
-            </button>
+          <div style={{ display:"flex", alignItems:"center", gap:8, flex:1, justifyContent:"center" }}>
+            <span style={{ fontSize:11, color:"#4b5563", fontFamily:"monospace" }}>↑ Im Vollbild tippen & prüfen</span>
           </div>
         </div>
       </div>
