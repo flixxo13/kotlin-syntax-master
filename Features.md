@@ -1,0 +1,4 @@
+- Theorie KI Prompt per Button bei jeder Übung
+- code shadow writing 
+- Hints optional
+- optional Theorie
