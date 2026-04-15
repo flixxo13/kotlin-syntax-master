@@ -2,3 +2,6 @@
 - code shadow writing 
 - Hints optional
 - optional Theorie
+- Starteditor auch benutzbar, wie jetzt mit Aufhabe ein und ausklappbar, ohne Toolbar und den Vollbildeditor über button starten
+- Aufgabe bearbeiten und löschen Button bei Feedback 
+- 
