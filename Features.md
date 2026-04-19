@@ -7,4 +7,4 @@
 - Aufgaben könnten über den Prompt noch genauer angewiesen werden: es soll nur eine eindeutige Lösung möglich sein, alles was zur Lösung benötigt wird, soll in der Aufgabe mit angegeben werden. 
 - Aufgaben Design: Hints können über KI Prompt Vorlage flexibler werden: Struktur und Schlüsselwörter sie jetzt und Hinweise durch Verküpfung(verschiedene Möglichleiten erforschen)
 - KI Prompt Vorlagen erweitern 
-- 
+- importierte Aufgaben in Lernbereiche integrieren, die man mit Wiederholalgorythmen und Streaks lernen getrennt von anderen Aufgaben lernen kann. (diese Mechanik, Prinzip erforschen)
