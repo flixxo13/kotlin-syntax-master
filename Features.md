@@ -4,4 +4,7 @@
 - optional Theorie
 - Starteditor auch benutzbar, wie jetzt mit Aufhabe ein und ausklappbar, ohne Toolbar und den Vollbildeditor über button starten
 - Aufgabe bearbeiten und löschen Button bei Feedback 
+- Aufgaben könnten über den Prompt noch genauer angewiesen werden: es soll nur eine eindeutige Lösung möglich sein, alles was zur Lösung benötigt wird, soll in der Aufgabe mit angegeben werden. 
+- Aufgaben Design: Hints können über KI Prompt Vorlage flexibler werden: Struktur und Schlüsselwörter sie jetzt und Hinweise durch Verküpfung(verschiedene Möglichleiten erforschen)
+- KI Prompt Vorlagen erweitern 
 - 
