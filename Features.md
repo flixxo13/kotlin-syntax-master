@@ -8,3 +8,4 @@
 - Aufgaben Design: Hints können über KI Prompt Vorlage flexibler werden: Struktur und Schlüsselwörter sie jetzt und Hinweise durch Verküpfung(verschiedene Möglichleiten erforschen)
 - KI Prompt Vorlagen erweitern 
 - importierte Aufgaben in Lernbereiche integrieren, die man mit Wiederholalgorythmen und Streaks lernen getrennt von anderen Aufgaben lernen kann. (diese Mechanik, Prinzip erforschen)
+- bei der Codekomplettanalyse eventuell nur bis >75% und keine 100% anzeigen und, da oft nur ein letztes Zeichen fehlt um auf 100% zukommen. So ist es noch etwas anspruchsvoller.
